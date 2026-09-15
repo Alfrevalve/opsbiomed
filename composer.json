@@ -1,0 +1,61 @@
+{
+  "name": "biomed/ops-biomed-mr8",
+  "type": "project",
+  "description": "OPS BIOMED MR8 surgical control tower built on Laravel.",
+  "license": "proprietary",
+  "require": {
+    "php": "^8.3",
+    "laravel/framework": "^12.0 || ^13.0",
+    "laravel/sanctum": "^4.0",
+    "laravel/tinker": "^2.10",
+    "livewire/livewire": "^3.0",
+    "maatwebsite/excel": "^3.1",
+    "spatie/laravel-permission": "^6.0"
+  },
+  "require-dev": {
+    "fakerphp/faker": "^1.23",
+    "laravel/boost": "^2.8",
+    "laravel/breeze": "^2.3",
+    "laravel/pint": "^1.18",
+    "laravel/sail": "^1.35",
+    "mockery/mockery": "^1.6",
+    "nunomaduro/collision": "^8.0",
+    "phpunit/phpunit": "^11.0"
+  },
+  "autoload": {
+    "psr-4": {
+      "App\\": "app/",
+      "Database\\Factories\\": "database/factories/",
+      "Database\\Seeders\\": "database/seeders/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "Tests\\": "tests/"
+    }
+  },
+  "scripts": {
+    "post-autoload-dump": [
+      "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
+      "@php artisan package:discover --ansi"
+    ],
+    "post-root-package-install": [
+      "@php -r \"file_exists('.env') || copy('.env.example', '.env');\""
+    ],
+    "post-create-project-cmd": [
+      "@php artisan key:generate --ansi",
+      "@php -r \"file_exists('database/database.sqlite') || touch('database/database.sqlite');\""
+    ]
+  },
+  "config": {
+    "optimize-autoloader": true,
+    "preferred-install": "dist",
+    "sort-packages": true,
+    "allow-plugins": {
+      "pestphp/pest-plugin": true,
+      "php-http/discovery": true
+    }
+  },
+  "minimum-stability": "stable",
+  "prefer-stable": true
+}

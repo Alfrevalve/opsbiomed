@@ -1,0 +1,150 @@
+name: Deploy production
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Reuse CI checks
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    name: Deploy to cPanel over SSH
+    needs: quality
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+    env:
+      CPANEL_HOST: ${{ secrets.CPANEL_HOST }}
+      CPANEL_PORT: ${{ secrets.CPANEL_PORT }}
+      CPANEL_USER: ${{ secrets.CPANEL_USER }}
+      CPANEL_APP_PATH: ${{ secrets.CPANEL_APP_PATH }}
+      CPANEL_PHP_BIN: ${{ secrets.CPANEL_PHP_BIN }}
+      CPANEL_COMPOSER_BIN: ${{ secrets.CPANEL_COMPOSER_BIN }}
+      DEPLOY_URL: https://opsbiomed.alfreval.com
+      PACKAGE_NAME: ops-biomed-${{ github.sha }}.tar.gz
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: bcmath, ctype, fileinfo, intl, mbstring, pdo_mysql, pdo_sqlite, tokenizer, xml, zip
+          coverage: none
+          tools: composer:v2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install production PHP dependencies
+        run: composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader
+
+      - name: Build frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Create deployment package
+        run: |
+          tar -czf "$RUNNER_TEMP/$PACKAGE_NAME" \
+            --exclude='./.env' \
+            --exclude='./.git' \
+            --exclude='./.github' \
+            --exclude='./node_modules' \
+            --exclude='./tests' \
+            --exclude='./storage/logs' \
+            --exclude='./storage/app/private' \
+            --exclude='./storage/app/qa-pilot' \
+            --exclude='./storage/framework' \
+            --exclude='./bootstrap/cache/*.php' \
+            .
+          test -f public/build/manifest.json
+
+      - name: Configure SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.CPANEL_SSH_KEY }}
+
+      - name: Trust cPanel host key
+        run: ssh-keyscan -p "$CPANEL_PORT" "$CPANEL_HOST" >> "$HOME/.ssh/known_hosts"
+
+      - name: Upload package
+        run: scp -P "$CPANEL_PORT" "$RUNNER_TEMP/$PACKAGE_NAME" "$CPANEL_USER@$CPANEL_HOST:$CPANEL_APP_PATH/$PACKAGE_NAME"
+
+      - name: Deploy package
+        run: |
+          ssh -p "$CPANEL_PORT" "$CPANEL_USER@$CPANEL_HOST" bash -s -- \
+            "$CPANEL_APP_PATH" \
+            "$CPANEL_PHP_BIN" \
+            "$CPANEL_COMPOSER_BIN" \
+            "$PACKAGE_NAME" \
+            "$DEPLOY_URL" <<'REMOTE_SCRIPT'
+          set -Eeuo pipefail
+
+          APP_PATH="$1"
+          PHP_BIN="$2"
+          COMPOSER_BIN="$3"
+          PACKAGE_NAME="$4"
+          DEPLOY_URL="$5"
+
+          if [[ -z "$APP_PATH" || -z "$PHP_BIN" || -z "$PACKAGE_NAME" ]]; then
+            echo "Deployment secrets are incomplete." >&2
+            exit 1
+          fi
+
+          cd "$APP_PATH"
+          BACKUP_DIR="storage/backups/$(date +%Y%m%d-%H%M%S)"
+          mkdir -p "$BACKUP_DIR"
+
+          if [[ -f .env ]]; then
+            cp .env "$BACKUP_DIR/.env"
+          fi
+
+          if [[ -d storage/app/private ]]; then
+            tar -czf "$BACKUP_DIR/private-storage.tgz" -C storage/app/private .
+          fi
+
+          maintenance_enabled=0
+          cleanup() {
+            if [[ "$maintenance_enabled" == "1" ]]; then
+              "$PHP_BIN" artisan up || true
+            fi
+          }
+          trap cleanup EXIT
+
+          "$PHP_BIN" artisan down --render=errors::503 --retry=60
+          maintenance_enabled=1
+          tar --overwrite -xzf "$PACKAGE_NAME" -C "$APP_PATH"
+
+          if [[ -n "$COMPOSER_BIN" ]]; then
+            "$COMPOSER_BIN" install --no-dev --no-interaction --prefer-dist --optimize-autoloader
+          else
+            composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader
+          fi
+
+          "$PHP_BIN" artisan migrate --force
+
+          if [[ ! -e public/storage && ! -L public/storage ]]; then
+            "$PHP_BIN" artisan storage:link
+          fi
+
+          "$PHP_BIN" artisan optimize:clear
+          "$PHP_BIN" artisan config:cache
+          "$PHP_BIN" artisan route:cache
+          "$PHP_BIN" artisan view:cache
+          "$PHP_BIN" artisan event:cache
+          "$PHP_BIN" artisan up
+          maintenance_enabled=0
+
+          curl --fail --silent --show-error --retry 3 --max-time 20 "$DEPLOY_URL/up" >/dev/null
+          echo "OPS BIOMED production deployment completed."
+          REMOTE_SCRIPT

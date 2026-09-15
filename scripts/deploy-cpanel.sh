@@ -8,6 +8,9 @@ APP_PATH="${CPANEL_APP_PATH:-$(pwd)}"
 
 cd "$APP_PATH"
 
+mkdir -p storage/framework/{sessions,views,cache/data} storage/logs storage/app/{private,public} bootstrap/cache
+chmod -R ug+rwX storage bootstrap/cache
+
 BACKUP_DIR="${BACKUP_DIR:-storage/backups/$(date +%Y%m%d-%H%M%S)}"
 mkdir -p "$BACKUP_DIR"
 

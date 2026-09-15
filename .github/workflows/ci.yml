@@ -45,6 +45,12 @@ jobs:
           node-version: '20'
           cache: npm
 
+      - name: Prepare Laravel runtime
+        run: |
+          mkdir -p storage/framework/{sessions,views,cache/data} storage/logs storage/app/{private,public} bootstrap/cache
+          chmod -R ug+rwX storage bootstrap/cache
+          php -r "file_exists('.env') || copy('.env.example', '.env');"
+
       - name: Validate Composer manifest
         run: composer validate --strict
 
@@ -56,7 +62,6 @@ jobs:
 
       - name: Prepare test environment
         run: |
-          cp .env.example .env
           mkdir -p database
           touch database/testing.sqlite
 

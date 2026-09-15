@@ -19,6 +19,7 @@ class RepositoryReadinessTest extends TestCase
         $this->assertStringNotContainsString('OpsBiomed2026!', $productionEnvironment);
         $this->assertStringNotContainsString('change-me', $productionEnvironment);
         $this->assertFileExists(public_path('build/manifest.json'));
+        $this->assertSame(storage_path('framework/views'), config('view.compiled'));
 
         $this->get('/up')->assertOk();
     }

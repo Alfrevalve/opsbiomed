@@ -24,6 +24,7 @@ jobs:
       QUEUE_CONNECTION: sync
       SESSION_DRIVER: array
       MAIL_MAILER: array
+      VIEW_COMPILED_PATH: ${{ github.workspace }}/storage/framework/views
       INITIAL_ADMIN_PASSWORD: test-admin-password
       PILOT_DEMO_PASSWORD: test-pilot-password
 
@@ -47,7 +48,7 @@ jobs:
 
       - name: Prepare Laravel runtime
         run: |
-          mkdir -p storage/framework/{sessions,views,cache/data} storage/logs storage/app/{private,public} bootstrap/cache
+          mkdir -p storage/framework/sessions storage/framework/views storage/framework/cache/data storage/logs storage/app/private storage/app/public bootstrap/cache
           chmod -R ug+rwX storage bootstrap/cache
           php -r "file_exists('.env') || copy('.env.example', '.env');"
 

@@ -83,5 +83,27 @@
                 </div>
             @endif
         </section>
+
+        @if (auth()->user()->hasRole('Administrador') && $user->id !== auth()->id())
+            <section class="border border-rose-200 bg-rose-50/50 shadow-sm">
+                <div class="border-b border-rose-200 px-5 py-4">
+                    <h2 class="font-semibold text-rose-900">Baja permanente de cuenta</h2>
+                    <p class="mt-1 text-sm text-rose-800">Esta accion elimina la cuenta y no debe usarse para reemplazar la inactivacion operativa.</p>
+                </div>
+                <form method="POST" action="{{ route('admin.users.destroy', $user) }}" class="grid gap-4 p-5 sm:grid-cols-2 sm:items-end" onsubmit="return confirm('Esta accion es permanente. ¿Confirmas eliminar esta cuenta?');">
+                    @csrf
+                    @method('DELETE')
+                    <label class="block text-sm font-medium text-rose-900">Password actual del Administrador
+                        <input name="password" type="password" required autocomplete="current-password" class="mt-1.5 block w-full border-rose-300 bg-white text-sm shadow-sm focus:border-rose-500 focus:ring-rose-500">
+                    </label>
+                    <label class="block text-sm font-medium text-rose-900">Escribe ELIMINAR para confirmar
+                        <input name="confirmation" type="text" required autocomplete="off" class="mt-1.5 block w-full border-rose-300 bg-white text-sm uppercase shadow-sm focus:border-rose-500 focus:ring-rose-500">
+                    </label>
+                    <div class="sm:col-span-2">
+                        <button type="submit" class="inline-flex items-center justify-center bg-rose-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-rose-800 focus:outline-none focus:ring-2 focus:ring-rose-500 focus:ring-offset-2">Eliminar cuenta</button>
+                    </div>
+                </form>
+            </section>
+        @endif
     </div>
 @endsection

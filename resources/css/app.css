@@ -557,27 +557,36 @@ html {
     background-color: rgb(255 255 255 / 96%);
 }
 
-.ops-topbar-control,
-.ops-topbar-logout {
+.ops-topbar-control {
     color: var(--ops-text-muted);
 }
 
-.ops-topbar-control:hover,
-.ops-topbar-logout:hover {
+.ops-topbar-control:hover {
     background-color: var(--ops-bg-soft);
     color: var(--ops-text);
 }
 
-.ops-user-link {
-    color: #30495A;
+.ops-clock {
+    border-color: #2f5263;
+    background-color: var(--ops-sidebar);
+    color: #d7e7ed;
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 8%);
 }
 
-.ops-user-link:hover {
-    color: var(--ops-text);
+.ops-clock-meta {
+    color: #a8d2dc;
 }
 
-.ops-topbar-divider {
-    background-color: var(--ops-border);
+.ops-clock-time {
+    color: #6ee7b7;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.04em;
+    text-shadow: 0 0 8px rgb(52 211 153 / 24%);
+}
+
+.ops-clock-date {
+    color: #d7e7ed;
 }
 
 .ops-flash-success {

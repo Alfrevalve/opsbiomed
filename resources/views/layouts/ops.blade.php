@@ -368,21 +368,12 @@
                     <span class="hidden" data-sidebar-collapsed-icon><x-nav.icon name="chevron-right" class="h-5 w-5" /></span>
                 </button>
 
-                <div class="ml-auto flex min-w-0 items-center gap-3 text-sm">
-                    <a href="{{ route('profile.edit') }}" class="ops-user-link min-w-0 text-right" title="Ver perfil">
-                        <span class="block truncate font-semibold">{{ $user->name }}</span>
-                        @if ($userRole)
-                            <span class="block truncate text-xs text-slate-500">{{ $userRole }}</span>
-                        @endif
-                    </a>
-                    <span class="ops-topbar-divider hidden h-6 w-px sm:block"></span>
-                    <form method="POST" action="{{ route('logout') }}">
-                        @csrf
-                        <button type="submit" class="ops-topbar-logout inline-flex items-center gap-2 rounded-md px-2 py-2 font-medium" title="Cerrar sesion">
-                            <x-nav.icon name="logout" class="h-4 w-4" />
-                            <span class="hidden sm:inline">Salir</span>
-                        </button>
-                    </form>
+                <div class="ml-auto flex min-w-0 items-center gap-2 text-sm sm:gap-3">
+                    <div class="ops-clock flex shrink-0 items-center gap-2 rounded-md border px-2.5 py-1.5" role="timer" aria-label="Hora local Lima">
+                        <span class="ops-clock-meta hidden text-[10px] font-bold uppercase tracking-[0.12em] sm:inline">LIMA</span>
+                        <time class="ops-clock-time text-xs font-semibold" data-ops-clock-time datetime="">--:--:--</time>
+                        <span class="ops-clock-date hidden text-[10px] font-medium md:inline" data-ops-clock-date>--/--</span>
+                    </div>
                 </div>
             </div>
         </header>
@@ -423,9 +414,40 @@
             const sectionChevrons = document.querySelectorAll('[data-sidebar-chevron]');
             const expandedIcon = document.querySelector('[data-sidebar-expanded-icon]');
             const collapsedIcon = document.querySelector('[data-sidebar-collapsed-icon]');
+            const clockTime = document.querySelector('[data-ops-clock-time]');
+            const clockDate = document.querySelector('[data-ops-clock-date]');
             const desktopQuery = window.matchMedia('(min-width: 1024px)');
             let isCollapsed = false;
             let isMobileOpen = false;
+
+            if (clockTime && clockDate) {
+                const timeFormatter = new Intl.DateTimeFormat('es-PE', {
+                    timeZone: 'America/Lima',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    hourCycle: 'h23',
+                });
+                const dateFormatter = new Intl.DateTimeFormat('es-PE', {
+                    timeZone: 'America/Lima',
+                    day: '2-digit',
+                    month: 'short',
+                });
+
+                const updateClock = () => {
+                    const now = new Date();
+                    const time = timeFormatter.format(now);
+                    const date = dateFormatter.format(now).replace('.', '');
+
+                    clockTime.textContent = time;
+                    clockTime.dateTime = now.toISOString();
+                    clockDate.textContent = date;
+                    clockTime.closest('[role="timer"]')?.setAttribute('aria-label', `Hora local Lima: ${time}, ${date}`);
+                };
+
+                updateClock();
+                window.setInterval(updateClock, 1000);
+            }
 
             const syncSectionState = (section) => {
                 const chevron = section.querySelector('[data-sidebar-chevron]');

@@ -162,6 +162,7 @@ Route::middleware(['auth'])->group(function (): void {
         Route::get('/{user}', [UserManagementController::class, 'show'])->name('show');
         Route::get('/{user}/edit', [UserManagementController::class, 'edit'])->name('edit');
         Route::patch('/{user}', [UserManagementController::class, 'update'])->name('update');
+        Route::delete('/{user}', [UserManagementController::class, 'destroy'])->name('destroy');
         Route::post('/{user}/disable', [UserManagementController::class, 'disable'])->name('disable');
         Route::post('/{user}/enable', [UserManagementController::class, 'enable'])->name('enable');
         Route::post('/{user}/reset-password', [UserManagementController::class, 'resetPassword'])->name('reset-password');

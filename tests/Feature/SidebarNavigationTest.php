@@ -62,6 +62,11 @@ class SidebarNavigationTest extends TestCase
         $response->assertSee('Cerrar sesion');
         $response->assertSee('data-sidebar-toggle', false);
         $response->assertSee('data-sidebar-close', false);
+        $response->assertSee('data-ops-clock-time', false);
+        $response->assertSee('data-ops-clock-date', false);
+        $response->assertSee('LIMA');
+        $response->assertDontSee('ops-user-link', false);
+        $response->assertDontSee('ops-topbar-logout', false);
         $response->assertDontSee('Laravel');
         $response->assertSee('Comercial y cobranza');
         $response->assertSee('Inventario MR8');

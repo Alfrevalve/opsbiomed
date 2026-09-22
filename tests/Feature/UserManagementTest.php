@@ -24,7 +24,7 @@ class UserManagementTest extends TestCase
 
         $this->actingAs($administrator)->get(route('admin.users.index'))->assertOk()->assertSee('Usuarios y accesos')->assertSee($managedUser->email);
         $this->actingAs($administrator)->get(route('admin.users.create'))->assertOk()->assertSee('Crear usuario');
-        $this->actingAs($administrator)->get(route('admin.users.show', $managedUser))->assertOk()->assertSee('Roles y permisos');
+        $this->actingAs($administrator)->get(route('admin.users.show', $managedUser))->assertOk()->assertSee('Roles y permisos')->assertSee('Baja permanente de cuenta');
         $this->actingAs($administrator)->get(route('admin.users.edit', $managedUser))->assertOk()->assertSee('Editar usuario')->assertSee('Restablecer password');
     }
 
@@ -166,7 +166,7 @@ class UserManagementTest extends TestCase
             ->from(route('admin.users.show', $administrator))
             ->post(route('admin.users.disable', $administrator))
             ->assertRedirect(route('admin.users.show', $administrator))
-            ->assertSessionHasErrors('user');
+            ->assertSessionHasErrors(['user']);
 
         $this->actingAs($administrator)
             ->from(route('admin.users.show', $administrator))
@@ -220,6 +220,54 @@ class UserManagementTest extends TestCase
         $managedUser->refresh();
         $this->assertTrue(Hash::check('NewPassword2026!', $managedUser->password));
         $this->assertDatabaseHas('audit_logs', ['action' => 'user.password_reset', 'auditable_id' => $managedUser->id]);
+    }
+
+    public function test_only_administrator_can_delete_managed_users_and_action_is_audited(): void
+    {
+        $this->seed(RoleAndPermissionSeeder::class);
+        $administrator = User::factory()->create(['password' => 'password']);
+        $administrator->assignRole(Role::findByName('Administrador'));
+        $manager = User::factory()->create();
+        $manager->assignRole(Role::findByName('Jefe de Linea'));
+        $managedUser = User::factory()->create(['email' => 'delete.qa@example.test']);
+        $managedUser->assignRole(Role::findByName('Comercial'));
+
+        $this->actingAs($manager)
+            ->delete(route('admin.users.destroy', $managedUser), [
+                'password' => 'password',
+                'confirmation' => 'ELIMINAR',
+            ])
+            ->assertForbidden();
+
+        $this->assertNotNull($managedUser->fresh());
+
+        $this->actingAs($administrator)
+            ->delete(route('admin.users.destroy', $managedUser), [
+                'password' => 'password',
+                'confirmation' => 'ELIMINAR',
+            ])
+            ->assertRedirect(route('admin.users.index'));
+
+        $this->assertNull($managedUser->fresh());
+        $this->assertDatabaseHas('audit_logs', [
+            'action' => 'user.deleted',
+            'auditable_id' => $managedUser->id,
+        ]);
+    }
+
+    public function test_administrator_cannot_delete_their_own_account(): void
+    {
+        $administrator = $this->administrator();
+
+        $response = $this->actingAs($administrator)
+            ->delete(route('admin.users.destroy', $administrator), [
+                'password' => 'password',
+                'confirmation' => 'ELIMINAR',
+            ]);
+
+        $response->assertStatus(302)->assertSessionHasErrors(['user']);
+
+        $this->assertNotNull($administrator->fresh());
     }
 
     public function test_user_detail_renders_related_audit_history(): void

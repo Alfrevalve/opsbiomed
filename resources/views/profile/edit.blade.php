@@ -144,11 +144,11 @@
 
                 <section class="ops-card ops-card-danger">
                     <div class="border-b border-rose-100 px-5 py-4">
-                        <h2 class="font-semibold text-rose-900">Zona de riesgo</h2>
-                        <p class="mt-1 text-sm text-rose-700">La eliminacion de la cuenta es permanente y no se puede deshacer.</p>
+                        <h2 class="font-semibold text-rose-900">Administracion de cuenta</h2>
+                        <p class="mt-1 text-sm text-rose-700">La eliminacion de cuentas esta restringida al Administrador desde el modulo de usuarios.</p>
                     </div>
                     <div class="p-5 sm:p-6">
-                        @include('profile.partials.delete-user-form')
+                        <p class="text-sm leading-6 text-slate-600">Si necesitas dejar de operar, solicita a un Administrador que inactive tu cuenta. La inactivacion conserva la trazabilidad de tus operaciones.</p>
                     </div>
                 </section>
             </div>

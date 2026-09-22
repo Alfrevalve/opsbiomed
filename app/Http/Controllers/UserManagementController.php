@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\DeleteManagedUserRequest;
 use App\Http\Requests\ResetManagedUserPasswordRequest;
 use App\Http\Requests\StoreManagedUserRequest;
 use App\Http\Requests\UpdateManagedUserRequest;
@@ -173,6 +174,42 @@ class UserManagementController extends Controller
         return redirect()->route('admin.users.show', $managedUser)->with('status', 'Usuario actualizado correctamente.');
     }
 
+    public function destroy(DeleteManagedUserRequest $request, User $user, AuditLogger $auditLogger): RedirectResponse
+    {
+        $this->authorizeAdministratorDeletion();
+
+        if ($user->id === auth()->id()) {
+            return back()->withErrors(['user' => 'No puedes eliminar tu propio usuario. Solicita la baja a otro Administrador.']);
+        }
+
+        try {
+            $result = DB::transaction(function () use ($user): array {
+                $managedUser = User::query()->lockForUpdate()->findOrFail($user->id);
+
+                if ($managedUser->active && $managedUser->hasRole('Administrador') && $this->activeAdministratorCount() <= 1) {
+                    throw new DomainException('No puedes eliminar al ultimo Administrador activo.');
+                }
+
+                $before = $this->snapshot($managedUser);
+                $managedUser->delete();
+
+                return [
+                    'user' => $managedUser,
+                    'before' => $before,
+                ];
+            });
+        } catch (DomainException $exception) {
+            return back()->withInput()->withErrors(['user' => $exception->getMessage()]);
+        }
+
+        $auditLogger->record('user.deleted', $result['user'], $result['before'], [
+            'deleted' => true,
+            'user_id' => $result['user']->id,
+        ]);
+
+        return redirect()->route('admin.users.index')->with('status', 'Usuario eliminado correctamente.');
+    }
+
     public function disable(User $user, AuditLogger $auditLogger): RedirectResponse
     {
         return $this->changeStatus($user, false, 'user.disabled', $auditLogger);
@@ -206,6 +243,11 @@ class UserManagementController extends Controller
     private function authorizeManage(): void
     {
         abort_unless(auth()->user()?->can('users.manage'), 403);
+    }
+
+    private function authorizeAdministratorDeletion(): void
+    {
+        abort_unless(auth()->user()?->hasRole('Administrador'), 403);
     }
 
     private function activeAdministratorCount(): int

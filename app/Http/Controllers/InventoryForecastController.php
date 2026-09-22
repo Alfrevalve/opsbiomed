@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Services\Inventory\ReplenishmentForecastService;
+use App\Support\CsvExportSanitizer;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -29,14 +30,17 @@ class InventoryForecastController extends Controller
         ]);
     }
 
-    public function export(Request $request, ReplenishmentForecastService $forecastService): StreamedResponse
-    {
+    public function export(
+        Request $request,
+        ReplenishmentForecastService $forecastService,
+        CsvExportSanitizer $csvExportSanitizer,
+    ): StreamedResponse {
         $this->authorizeForecast();
 
         $filters = $this->validatedFilters($request);
         $rows = $forecastService->summary($filters)['rows'];
 
-        return response()->streamDownload(function () use ($rows): void {
+        return response()->streamDownload(function () use ($rows, $csvExportSanitizer): void {
             $handle = fopen('php://output', 'wb');
             fwrite($handle, "\xEF\xBB\xBF");
             fputcsv($handle, [
@@ -62,7 +66,7 @@ class InventoryForecastController extends Controller
             ], ';', '"', '\\');
 
             foreach ($rows as $row) {
-                fputcsv($handle, [
+                fputcsv($handle, $csvExportSanitizer->sanitizeRow([
                     $row['surgery_type'],
                     $row['product_code'],
                     $row['product_name'],
@@ -82,7 +86,7 @@ class InventoryForecastController extends Controller
                     $row['urgency_label'],
                     $row['action'],
                     $row['observation'],
-                ], ';', '"', '\\');
+                ]), ';', '"', '\\');
             }
 
             fclose($handle);

@@ -93,6 +93,29 @@ class ReportsTest extends TestCase
         $this->assertStringContainsString($lot->product->product_code, $response->streamedContent());
     }
 
+    public function test_billing_csv_neutralizes_formula_like_institution_names(): void
+    {
+        $user = $this->reportUser(['reports.billing', 'reports.export']);
+        [$case] = $this->caseFixture($user);
+        $case->institution->update(['name' => '=HYPERLINK("https://example.invalid","open")']);
+        BillingRecord::create([
+            'case_id' => $case->id,
+            'amount' => 100,
+            'amount_paid' => 0,
+            'invoice_status' => 'pendiente_factura',
+            'payment_status' => 'pendiente',
+            'debt_days' => 0,
+        ]);
+
+        $csv = $this->actingAs($user)
+            ->get(route('reports.export', ['type' => 'billing']))
+            ->assertOk()
+            ->streamedContent();
+
+        $this->assertStringContainsString("'=HYPERLINK", $csv);
+        $this->assertStringNotContainsString('"=HYPERLINK', $csv);
+    }
+
     public function test_billing_report_shows_pending_and_overdue_debt(): void
     {
         $user = $this->reportUser(['reports.billing']);

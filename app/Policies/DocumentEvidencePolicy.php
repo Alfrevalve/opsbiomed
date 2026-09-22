@@ -20,7 +20,7 @@ class DocumentEvidencePolicy
      */
     public function view(User $user, DocumentEvidence $documentEvidence): bool
     {
-        return $user->can('documents.view');
+        return $documentEvidence->isVisibleTo($user);
     }
 
     /**
@@ -62,11 +62,11 @@ class DocumentEvidencePolicy
 
     public function validate(User $user, DocumentEvidence $documentEvidence): bool
     {
-        return $user->can('documents.validate');
+        return $user->can('documents.validate') && $documentEvidence->isVisibleTo($user);
     }
 
     public function delete(User $user, DocumentEvidence $documentEvidence): bool
     {
-        return $user->can('documents.delete');
+        return $user->can('documents.delete') && $documentEvidence->isVisibleTo($user);
     }
 }

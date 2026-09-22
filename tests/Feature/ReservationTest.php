@@ -17,6 +17,7 @@ use App\Models\User;
 use App\Models\Warehouse;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
@@ -39,6 +40,7 @@ class ReservationTest extends TestCase
         $response = $this->actingAs($user)->post(route('cases.reserve', $case), [
             'inventory_lot_id' => $lot->id,
             'quantity' => 4,
+            'idempotency_key' => (string) Str::uuid(),
         ]);
 
         $response->assertRedirect(route('cases.show', $case));
@@ -69,7 +71,7 @@ class ReservationTest extends TestCase
         ]);
 
         $this->actingAs($user)
-            ->post(route('cases.reserve', $case), ['inventory_lot_id' => $lot->id, 'quantity' => 3])
+            ->post(route('cases.reserve', $case), ['inventory_lot_id' => $lot->id, 'quantity' => 3, 'idempotency_key' => (string) Str::uuid()])
             ->assertRedirect(route('cases.reserve.create', $case))
             ->assertSessionHasErrors('quantity');
 
@@ -87,7 +89,7 @@ class ReservationTest extends TestCase
             ->assertDontSee($lot->product->product_code);
 
         $this->actingAs($user)
-            ->post(route('cases.reserve', $case), ['inventory_lot_id' => $lot->id, 'quantity' => 1])
+            ->post(route('cases.reserve', $case), ['inventory_lot_id' => $lot->id, 'quantity' => 1, 'idempotency_key' => (string) Str::uuid()])
             ->assertRedirect(route('cases.reserve.create', $case))
             ->assertSessionHasErrors('quantity');
     }
@@ -98,7 +100,7 @@ class ReservationTest extends TestCase
         [$case, $lot] = $this->fixture($user, ['status' => InventoryStatus::Bloqueado]);
 
         $this->actingAs($user)
-            ->post(route('cases.reserve', $case), ['inventory_lot_id' => $lot->id, 'quantity' => 1])
+            ->post(route('cases.reserve', $case), ['inventory_lot_id' => $lot->id, 'quantity' => 1, 'idempotency_key' => (string) Str::uuid()])
             ->assertRedirect(route('cases.reserve.create', $case))
             ->assertSessionHasErrors('quantity');
     }
@@ -119,7 +121,7 @@ class ReservationTest extends TestCase
         ]);
 
         $this->actingAs($user)
-            ->post(route('cases.reserve', $case), ['inventory_lot_id' => $lot->id, 'quantity' => 1])
+            ->post(route('cases.reserve', $case), ['inventory_lot_id' => $lot->id, 'quantity' => 1, 'idempotency_key' => (string) Str::uuid()])
             ->assertRedirect(route('cases.reserve.create', $case))
             ->assertSessionHasErrors('quantity');
     }
@@ -152,12 +154,67 @@ class ReservationTest extends TestCase
 
         foreach ([0, -1] as $quantity) {
             $this->actingAs($user)
-                ->post(route('cases.reserve', $case), ['inventory_lot_id' => $lot->id, 'quantity' => $quantity])
+                ->post(route('cases.reserve', $case), ['inventory_lot_id' => $lot->id, 'quantity' => $quantity, 'idempotency_key' => (string) Str::uuid()])
                 ->assertRedirect()
                 ->assertSessionHasErrors('quantity');
         }
 
         $this->assertDatabaseCount('reservations', 0);
+    }
+
+    public function test_replaying_the_same_reservation_request_does_not_duplicate_stock_or_audit(): void
+    {
+        $user = $this->reservationManager();
+        [$case, $lot] = $this->fixture($user, ['quantity' => 5]);
+        $requestData = [
+            'inventory_lot_id' => $lot->id,
+            'quantity' => 2,
+            'idempotency_key' => (string) Str::uuid(),
+        ];
+
+        $this->actingAs($user)->post(route('cases.reserve', $case), $requestData)
+            ->assertRedirect(route('cases.show', $case));
+        $this->actingAs($user)->post(route('cases.reserve', $case), $requestData)
+            ->assertRedirect(route('cases.show', $case));
+
+        $this->assertDatabaseCount('reservations', 1);
+        $this->assertSame(2, (int) Reservation::query()->sum('quantity'));
+        $this->assertSame(1, DB::table('audit_logs')->where('action', 'reservation.created')->count());
+    }
+
+    public function test_two_cases_cannot_reserve_more_than_the_last_immediate_unit(): void
+    {
+        $firstUser = $this->reservationManager();
+        $secondUser = $this->reservationManager();
+        [$firstCase, $lot] = $this->fixture($firstUser, ['quantity' => 1]);
+        $secondCase = SurgeryCase::create([
+            'case_code' => 'MR8-RES-COMPETE-'.uniqid(),
+            'status' => CaseStatus::SolicitudRegistrada,
+            'institution_id' => $firstCase->institution_id,
+            'doctor_id' => $firstCase->doctor_id,
+            'patient_id' => $firstCase->patient_id,
+            'surgery_type_id' => $firstCase->surgery_type_id,
+            'scheduled_at' => now()->addDays(2),
+            'priority' => 'normal',
+            'procedure_name' => 'Kit MR8 de competencia',
+            'request_origin' => 'whatsapp',
+            'created_by' => $secondUser->id,
+        ]);
+
+        $this->actingAs($firstUser)->post(route('cases.reserve', $firstCase), [
+            'inventory_lot_id' => $lot->id,
+            'quantity' => 1,
+            'idempotency_key' => (string) Str::uuid(),
+        ])->assertRedirect(route('cases.show', $firstCase));
+
+        $this->actingAs($secondUser)->post(route('cases.reserve', $secondCase), [
+            'inventory_lot_id' => $lot->id,
+            'quantity' => 1,
+            'idempotency_key' => (string) Str::uuid(),
+        ])->assertRedirect(route('cases.reserve.create', $secondCase))->assertSessionHasErrors('quantity');
+
+        $this->assertSame(1, (int) Reservation::query()->where('inventory_lot_id', $lot->id)->sum('quantity'));
+        $this->assertDatabaseCount('reservations', 1);
     }
 
     public function test_dashboard_shows_stock_risk_and_incomplete_reservation_metrics(): void

@@ -76,8 +76,7 @@ class InventoryController extends Controller
             'returns' => fn ($query) => $query
                 ->with(['case.institution', 'case.doctor', 'inspectedBy', 'inspectionResponsible', 'technicalFailure'])
                 ->latest('id'),
-            'documents.uploadedBy',
-            'documents.validatedBy',
+            'documents' => fn ($query) => $query->visibleTo(auth()->user())->with(['uploadedBy', 'validatedBy']),
         ]);
 
         $productLots = InventoryLot::query()

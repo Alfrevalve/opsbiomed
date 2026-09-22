@@ -180,6 +180,24 @@ class ForecastTest extends TestCase
         $this->assertStringNotContainsString('Sin producto equivalente', $csv);
     }
 
+    public function test_forecast_csv_neutralizes_formula_like_product_codes(): void
+    {
+        $user = $this->forecastManager();
+        [, $rule] = $this->ruleFixture('forecast-csv-formula');
+        $this->lotForRule($rule, [
+            'product_code' => '=HYPERLINK("https://example.invalid","open")',
+            'quantity' => 1,
+        ]);
+
+        $csv = $this->actingAs($user)
+            ->get(route('inventory.forecast.export'))
+            ->assertDownload('plan-reposicion-mr8.csv')
+            ->streamedContent();
+
+        $this->assertStringContainsString("'=HYPERLINK", $csv);
+        $this->assertStringNotContainsString('"=HYPERLINK', $csv);
+    }
+
     public function test_forecast_marks_a_combination_without_catalog_match_for_review(): void
     {
         $user = $this->forecastManager();

@@ -33,8 +33,10 @@ class EvaluateOperationalAlerts extends Command
         try {
             $summary = $service->evaluate();
         } catch (Throwable $exception) {
-            Log::error('No se pudieron evaluar las alertas operativas.', ['exception' => $exception]);
-            $this->error('No se pudieron evaluar las alertas operativas: '.$exception->getMessage());
+            Log::error('No se pudieron evaluar las alertas operativas.', [
+                'exception_class' => $exception::class,
+            ]);
+            $this->error('No se pudieron evaluar las alertas operativas. Revisar el log restringido.');
 
             return self::FAILURE;
         }

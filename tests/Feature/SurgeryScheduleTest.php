@@ -161,6 +161,57 @@ class SurgeryScheduleTest extends TestCase
             ->exists());
     }
 
+    public function test_same_instrumentist_cannot_be_assigned_to_overlapping_cases(): void
+    {
+        $manager = $this->userWithPermissions(['schedule.view', 'schedule.manage']);
+        $instrumentist = $this->instrumentist();
+        $scheduledAt = now()->addHours(4)->startOfMinute();
+        $firstCase = $this->surgeryCase($manager, $scheduledAt);
+        $secondCase = $this->surgeryCase($manager, $scheduledAt->copy()->addSeconds(30));
+
+        $this->actingAs($manager)
+            ->patch(route('cases.schedule.instrumentist.update', $firstCase), [
+                'assigned_instrumentist_id' => $instrumentist->id,
+            ])
+            ->assertRedirect(route('cases.control', $firstCase));
+        $this->actingAs($manager)
+            ->patch(route('cases.schedule.instrumentist.update', $secondCase), [
+                'assigned_instrumentist_id' => $instrumentist->id,
+            ])
+            ->assertRedirect(route('cases.control', $secondCase))
+            ->assertSessionHasErrors('assigned_instrumentist_id');
+
+        $this->assertSame($instrumentist->id, $firstCase->refresh()->assigned_instrumentist_id);
+        $this->assertNull($secondCase->refresh()->assigned_instrumentist_id);
+        $this->assertSame(1, AuditLog::query()->where('action', 'schedule.instrumentist_assigned')->count());
+    }
+
+    public function test_same_reusable_resource_cannot_be_assigned_to_overlapping_cases(): void
+    {
+        $manager = $this->userWithPermissions(['schedule.view', 'schedule.manage']);
+        $scheduledAt = now()->addHours(4)->startOfMinute();
+        $firstCase = $this->surgeryCase($manager, $scheduledAt);
+        $secondCase = $this->surgeryCase($manager, $scheduledAt->copy()->addSeconds(30));
+        $lot = $this->reusableResourceLot();
+
+        $this->actingAs($manager)
+            ->post(route('cases.resources.store', $firstCase), [
+                'resource_type' => 'motor',
+                'inventory_lot_id' => $lot->id,
+            ])
+            ->assertRedirect(route('cases.control', $firstCase));
+        $this->actingAs($manager)
+            ->post(route('cases.resources.store', $secondCase), [
+                'resource_type' => 'motor',
+                'inventory_lot_id' => $lot->id,
+            ])
+            ->assertRedirect(route('cases.control', $secondCase))
+            ->assertSessionHasErrors('resource_assignment');
+
+        $this->assertSame(1, CaseResourceAssignment::query()->where('inventory_lot_id', $lot->id)->count());
+        $this->assertSame(1, AuditLog::query()->where('action', 'schedule.resource_assigned')->count());
+    }
+
     public function test_dashboard_shows_the_schedule_conflict_counter(): void
     {
         $user = $this->userWithPermissions(['dashboard.view', 'cases.view', 'schedule.view']);

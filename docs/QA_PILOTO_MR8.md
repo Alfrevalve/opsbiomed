@@ -168,4 +168,15 @@ Resultados:
 
 ## Recomendacion antes de produccion
 
-Resolver la inspeccion visual manual pendiente, cambiar las contrasenas temporales de los usuarios piloto, configurar HTTPS, revisar almacenamiento privado y correo real, y ejecutar una segunda ronda con datos anonimizados antes de habilitar usuarios reales.
+Cambiar las contrasenas temporales antes de cualquier uso compartido, configurar HTTPS en el entorno objetivo, revisar almacenamiento privado y correo, y ejecutar una segunda ronda con datos anonimizados antes de habilitar usuarios reales.
+
+## QA Fase 4 - validacion local y piloto seco
+
+Fecha: 20/09/2026. Evidencia extendida en `VALIDACION_STAGING_LOCAL.md`, `PRUEBA_BACKUP_RESTAURACION_LOCAL.md`, `PRUEBA_ROLLBACK_LOCAL.md`, `PILOTO_SECO_ROLES.md`, `PRUEBAS_SEGURIDAD_LOCAL.md`, `RENDIMIENTO_LINEA_BASE.md`, `REVISION_PRIVACIDAD.md` y `ACTA_GO_NO_GO_LOCAL.md`.
+
+- Backup sintetico verificado y restaurado en `ops_biomed_restore_test`; smoke autenticado de dashboard, casos, inventario y documentos: HTTP 200.
+- Las ocho cuentas piloto pasaron smoke de permisos; Comercial no ve montos ni evidencias financieras y no accede a Forecast interno.
+- Suite actual: 277 tests / 1,785 assertions; MySQL concurrente: 6 / 58. Composer audit y npm audit sin advisories.
+- RELEASE-A/B y rollback se probaron en directorios locales aislados; no en Apache ni servidor remoto.
+- No se completo el flujo transaccional de cirugia; la restauracion requiere medicion RTO limpia y el commit actual no incluye las dos migraciones Fase 3 del arbol de trabajo.
+- Decision Fase 4: **NO-GO LOCAL para piloto operativo completo**. No implica GO de produccion. No hubo contacto con hosting ni datos reales.

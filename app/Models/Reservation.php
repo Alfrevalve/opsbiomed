@@ -11,7 +11,7 @@ class Reservation extends Model
 {
     use HasTraceCode;
 
-    protected $fillable = ['case_id', 'inventory_lot_id', 'quantity', 'status', 'reserved_by', 'expires_at'];
+    protected $fillable = ['case_id', 'inventory_lot_id', 'quantity', 'status', 'reserved_by', 'expires_at', 'idempotency_key'];
 
     protected function casts(): array
     {

@@ -12,7 +12,9 @@ use App\Models\SurgeryCase;
 use App\Models\SurgeryType;
 use App\Models\User;
 use App\Models\Warehouse;
+use App\Services\Audit\AuditLogger;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use RuntimeException;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
@@ -228,6 +230,60 @@ class SurgeryCaseClosingTest extends TestCase
         $this->assertDatabaseHas('audit_logs', ['action' => 'consumption.recorded']);
         $this->assertDatabaseHas('audit_logs', ['action' => 'valuation.created']);
         $this->assertDatabaseHas('audit_logs', ['action' => 'billing.status.updated']);
+    }
+
+    public function test_replaying_a_successful_closure_does_not_consume_or_value_twice(): void
+    {
+        [$user, $case, $lot, $reservation] = $this->fixture([
+            'lot_quantity' => 8,
+            'reservation_quantity' => 2,
+        ]);
+        $payload = [
+            'materials' => [$this->materialLine($reservation, ['used_qty' => 2, 'unit_price' => '10'])],
+            'evidence_description' => 'Evidencia de cierre reenviada por prueba de idempotencia.',
+        ];
+
+        $this->actingAs($user)->post(route('cases.close', $case), $payload)
+            ->assertRedirect(route('cases.show', $case));
+        $this->actingAs($user)->post(route('cases.close', $case), $payload)
+            ->assertRedirect()->assertSessionHasErrors('close');
+
+        $this->assertSame(CaseStatus::Cerrado, $case->refresh()->status);
+        $this->assertSame(6, (int) $lot->refresh()->quantity);
+        $this->assertDatabaseCount('case_valuations', 1);
+        $this->assertDatabaseCount('case_materials_used', 1);
+        $this->assertDatabaseHas('reservations', ['id' => $reservation->id, 'status' => 'consumed']);
+    }
+
+    public function test_closure_rolls_back_all_changes_when_an_audit_write_fails(): void
+    {
+        [$user, $case, $lot, $reservation] = $this->fixture([
+            'lot_quantity' => 8,
+            'reservation_quantity' => 2,
+        ]);
+        $this->mock(AuditLogger::class)
+            ->shouldReceive('record')
+            ->once()
+            ->andThrow(new RuntimeException('Audit store unavailable.'));
+        $this->withoutExceptionHandling();
+
+        try {
+            $this->actingAs($user)->post(route('cases.close', $case), [
+                'materials' => [$this->materialLine($reservation, ['used_qty' => 2, 'unit_price' => '10'])],
+                'evidence_description' => 'Evidencia para probar rollback atomico.',
+            ]);
+            $this->fail('The injected audit error should escape the request.');
+        } catch (RuntimeException $exception) {
+            $this->assertSame('Audit store unavailable.', $exception->getMessage());
+        }
+
+        $this->assertSame(CaseStatus::Reservado, $case->refresh()->status);
+        $this->assertSame(8, (int) $lot->refresh()->quantity);
+        $this->assertSame('active', $reservation->refresh()->status);
+        $this->assertDatabaseCount('case_materials_used', 0);
+        $this->assertDatabaseCount('case_valuations', 0);
+        $this->assertDatabaseCount('billing_records', 0);
+        $this->assertDatabaseCount('case_returns', 0);
     }
 
     public function test_difference_is_recorded_and_visible_on_dashboard(): void

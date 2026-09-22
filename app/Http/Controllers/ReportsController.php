@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\ReportFilterRequest;
 use App\Services\Reports\ExecutiveReportService;
+use App\Support\CsvExportSanitizer;
 use Illuminate\Http\Response;
 use Illuminate\Support\Collection;
 use Illuminate\View\View;
@@ -50,21 +51,25 @@ class ReportsController extends Controller
         return $this->renderReport('inventory', $request, $service);
     }
 
-    public function export(ReportFilterRequest $request, string $type, ExecutiveReportService $service): StreamedResponse
-    {
+    public function export(
+        ReportFilterRequest $request,
+        string $type,
+        ExecutiveReportService $service,
+        CsvExportSanitizer $csvExportSanitizer,
+    ): StreamedResponse {
         abort_unless(array_key_exists($type, self::SECTION_PERMISSIONS), Response::HTTP_NOT_FOUND);
         $this->authorizeSection($type, true);
         $filters = $service->normalizeFilters($request->validated());
         $report = $service->{$type}(auth()->user(), $filters);
         $rows = $this->exportRows($type, $report);
 
-        return response()->streamDownload(function () use ($rows, $type): void {
+        return response()->streamDownload(function () use ($rows, $type, $csvExportSanitizer): void {
             $handle = fopen('php://output', 'wb');
             fwrite($handle, "\xEF\xBB\xBF");
             fputcsv($handle, $this->exportHeaders($type), ';');
 
             foreach ($rows as $row) {
-                fputcsv($handle, $row, ';');
+                fputcsv($handle, $csvExportSanitizer->sanitizeRow($row), ';');
             }
 
             fclose($handle);

@@ -2,18 +2,23 @@
 
 namespace Tests\Feature;
 
+use App\Enums\CaseStatus;
 use App\Enums\InventoryStatus;
 use App\Models\CatalogImport;
+use App\Models\Institution;
 use App\Models\InventoryImportIssue;
 use App\Models\InventoryLot;
 use App\Models\KitRule;
 use App\Models\Product;
+use App\Models\Reservation;
+use App\Models\SurgeryCase;
 use App\Models\SurgeryType;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\Catalog\CatalogImportService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use Spatie\Permission\Models\Permission;
@@ -58,6 +63,94 @@ class CatalogImportTest extends TestCase
         $this->assertDatabaseHas('inventory_lots', ['product_id' => $product->id, 'warehouse_id' => $desvalorizado->id, 'quantity' => 4, 'eligible_flag' => false]);
         $this->assertDatabaseHas('audit_logs', ['action' => 'catalog.import.staged', 'auditable_id' => $import->id]);
         $this->assertDatabaseHas('audit_logs', ['action' => 'catalog.import.committed', 'auditable_id' => $import->id]);
+
+        $this->actingAs($user)
+            ->post(route('catalog.imports.commit', $import))
+            ->assertRedirect(route('catalog.imports.show', $import))
+            ->assertSessionHas('error', 'La importacion ya fue confirmada.');
+
+        $this->assertSame(1, InventoryLot::query()->where('product_id', $product->id)->where('warehouse_id', $principal->id)->count());
+        $this->assertSame(1, DB::table('audit_logs')->where('auditable_id', $import->id)->where('action', 'catalog.import.committed')->count());
+    }
+
+    public function test_catalog_commit_cannot_overwrite_a_lot_with_an_active_reservation(): void
+    {
+        $user = $this->catalogManager();
+        $warehouse = Warehouse::create([
+            'name' => 'ALMACEN PRINCIPAL',
+            'type' => 'principal',
+            'lead_time_hours' => 0,
+            'counts_as_immediate' => true,
+            'active' => true,
+        ]);
+        $product = Product::create([
+            'product_code' => 'MR8-RESERVED-IMPORT',
+            'name' => 'Producto reservado en prueba',
+            'classification' => 'consumible',
+            'expiry_required' => true,
+            'active' => true,
+        ]);
+        $lot = InventoryLot::create([
+            'product_id' => $product->id,
+            'lot' => 'LOTE-RESERVADO',
+            'serial' => 'SER-RESERVADO',
+            'expiry' => '2028-12-31',
+            'warehouse_id' => $warehouse->id,
+            'quantity' => 5,
+            'status' => InventoryStatus::Apto,
+            'eligible_flag' => true,
+        ]);
+        $institution = Institution::create(['name' => 'Institucion importacion reserva', 'active' => true]);
+        $surgeryType = SurgeryType::create(['code' => 'import-reserva', 'name' => 'Importacion reserva', 'active' => true]);
+        $case = SurgeryCase::create([
+            'case_code' => 'MR8-IMPORT-RESERVA-001',
+            'status' => CaseStatus::Reservado,
+            'institution_id' => $institution->id,
+            'surgery_type_id' => $surgeryType->id,
+            'scheduled_at' => now()->addDay(),
+            'priority' => 'normal',
+            'procedure_name' => 'Prueba de importacion concurrente',
+            'request_origin' => 'whatsapp',
+            'created_by' => $user->id,
+        ]);
+        Reservation::create([
+            'case_id' => $case->id,
+            'inventory_lot_id' => $lot->id,
+            'quantity' => 2,
+            'status' => 'active',
+            'reserved_by' => $user->id,
+        ]);
+        $file = $this->catalogFile([
+            'MR8,Cervical,Fresa,MR8-RESERVED-IMPORT,Producto reservado en prueba,RS-01,31/12/2028,LOTE-RESERVADO,SER-RESERVADO,31/12/2028,ALMACEN PRINCIPAL,0,0,7,0,7',
+        ]);
+
+        $this->actingAs($user)->post(route('catalog.imports.store'), ['catalog' => $file]);
+        $import = CatalogImport::query()->latest('id')->firstOrFail();
+        $this->assertSame(0, $import->critical_errors);
+        $stagedRow = $import->rows()->firstOrFail();
+        $this->assertSame('2028-12-31', $stagedRow->detail_expiry?->toDateString());
+        $this->assertSame(7, (int) $stagedRow->warehouse_quantities['principal']);
+        $this->assertSame(1, InventoryLot::query()
+            ->where('product_id', $product->id)
+            ->where('lot', 'LOTE-RESERVADO')
+            ->where('serial', 'SER-RESERVADO')
+            ->whereDate('expiry', '2028-12-31')
+            ->where('warehouse_id', $warehouse->id)
+            ->count());
+        $this->assertDatabaseHas('reservations', [
+            'case_id' => $case->id,
+            'inventory_lot_id' => $lot->id,
+            'status' => 'active',
+        ]);
+        $response = $this->actingAs($user)
+            ->post(route('catalog.imports.commit', $import))
+            ->assertRedirect(route('catalog.imports.show', $import));
+
+        $this->assertSame('validated', $import->refresh()->status);
+        $response->assertSessionHas('error', 'No se puede actualizar desde el catalogo un lote con reservas activas. Concilia primero la reserva y vuelve a importar.');
+        $this->assertSame(5, (int) $lot->refresh()->quantity);
+        $this->assertDatabaseHas('reservations', ['case_id' => $case->id, 'inventory_lot_id' => $lot->id, 'status' => 'active']);
+        $this->assertDatabaseMissing('audit_logs', ['auditable_id' => $import->id, 'action' => 'catalog.import.committed']);
     }
 
     public function test_it_accepts_a_real_xlsx_file(): void

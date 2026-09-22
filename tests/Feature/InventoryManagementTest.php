@@ -15,8 +15,13 @@ use App\Models\SurgeryCase;
 use App\Models\SurgeryType;
 use App\Models\User;
 use App\Models\Warehouse;
+use App\Services\Audit\AuditLogger;
+use App\Services\Inventory\InventoryAdjustmentService;
 use App\Services\Inventory\StockEligibilityService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
@@ -200,6 +205,67 @@ class InventoryManagementTest extends TestCase
             ->assertSessionHasErrors(['quantity_adjustment', 'reason']);
 
         $this->assertDatabaseCount('inventory_adjustments', 0);
+    }
+
+    public function test_inventory_adjustment_cannot_reduce_stock_below_active_reservations(): void
+    {
+        $user = $this->userWithPermissions(['inventory.adjust', 'inventory.view']);
+        $lot = $this->lot(['quantity' => 5]);
+        $case = $this->caseFor($user);
+        Reservation::create([
+            'case_id' => $case->id,
+            'inventory_lot_id' => $lot->id,
+            'quantity' => 4,
+            'status' => 'active',
+            'reserved_by' => $user->id,
+        ]);
+
+        $this->actingAs($user)
+            ->post(route('inventory.adjust', $lot), [
+                'adjustment_type' => 'conteo_fisico',
+                'quantity_adjustment' => -2,
+                'reason' => 'Conteo fisico menor a reservas activas.',
+                'adjusted_at' => now()->format('Y-m-d H:i:s'),
+            ])
+            ->assertRedirect()
+            ->assertSessionHasErrors('quantity_adjustment');
+
+        $this->assertSame(5, (int) $lot->refresh()->quantity);
+        $this->assertDatabaseCount('inventory_adjustments', 0);
+        $this->assertDatabaseHas('reservations', ['id' => $case->reservations()->value('id'), 'status' => 'active']);
+    }
+
+    public function test_adjustment_audit_failure_rolls_back_database_and_removes_only_the_new_private_evidence(): void
+    {
+        Storage::fake('private');
+        Log::spy();
+        $user = $this->userWithPermissions(['inventory.adjust']);
+        $lot = $this->lot(['quantity' => 5]);
+        $auditLogger = $this->mock(AuditLogger::class);
+        $auditLogger->shouldReceive('record')->once()->andThrow(new \RuntimeException('Audit failure'));
+
+        try {
+            app(InventoryAdjustmentService::class)->create($lot, [
+                'adjustment_type' => 'conteo_fisico',
+                'quantity_adjustment' => 2,
+                'reason' => 'Ajuste para validar rollback.',
+                'evidence' => UploadedFile::fake()->create('ajuste.pdf', 20, 'application/pdf'),
+                'adjusted_at' => now(),
+            ], (int) $user->id);
+            $this->fail('Se esperaba que fallara la auditoria.');
+        } catch (\RuntimeException $exception) {
+            $this->assertSame('Audit failure', $exception->getMessage());
+        }
+
+        $this->assertSame(5, (int) $lot->refresh()->quantity);
+        $this->assertDatabaseCount('inventory_adjustments', 0);
+        $this->assertSame([], Storage::disk('private')->allFiles('inventory-adjustments'));
+        Log::shouldHaveReceived('warning')->once()->with('Inventory adjustment transaction failed.', \Mockery::on(
+            fn (array $context): bool => $context['inventory_lot_id'] === $lot->id
+                && $context['user_id'] === $user->id
+                && $context['evidence_cleanup_succeeded'] === true
+                && ! array_key_exists('evidence_path', $context),
+        ));
     }
 
     public function test_reusable_product_without_expiry_is_eligible_but_consumable_is_not(): void

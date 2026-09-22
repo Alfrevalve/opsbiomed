@@ -88,6 +88,26 @@ class ReturnInspectionTest extends TestCase
         $this->assertDatabaseHas('audit_logs', ['action' => 'inventory.blocked', 'auditable_id' => $lot->id]);
     }
 
+    public function test_reprocessing_an_inspected_return_does_not_duplicate_failure_or_audit(): void
+    {
+        [$user, , $lot, $return] = $this->fixture(
+            ['returns.view', 'returns.inspect', 'returns.release'],
+            'Direccion Tecnica',
+        );
+        $payload = $this->inspectionData($user, 'falla_detectada');
+
+        $this->actingAs($user)->post(route('returns.inspect', $return), $payload)
+            ->assertRedirect(route('returns.show', $return));
+        $this->actingAs($user)->post(route('returns.inspect', $return), $payload)
+            ->assertRedirect()->assertSessionHasErrors('inspection');
+
+        $this->assertSame(1, Failure::query()->where('inventory_lot_id', $lot->id)->count());
+        $this->assertSame(1, \DB::table('audit_logs')->where('action', 'return.inspected')->count());
+        $this->assertSame(1, \DB::table('audit_logs')->where('action', 'failure.reported')->count());
+        $this->assertSame(1, \DB::table('audit_logs')->where('action', 'inventory.blocked')->count());
+        $this->assertSame(InventoryStatus::FallaPreventiva, $lot->refresh()->status);
+    }
+
     public function test_cleaning_result_leaves_return_and_lot_in_quarantine(): void
     {
         [$user, , $lot, $return] = $this->fixture(['returns.view', 'returns.inspect'], 'Almacen');

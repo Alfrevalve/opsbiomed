@@ -17,6 +17,7 @@ use App\Models\User;
 use App\Models\Warehouse;
 use Database\Seeders\RoleAndPermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Str;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
@@ -74,7 +75,7 @@ class FailureManagementTest extends TestCase
         ]))->assertRedirect();
 
         $this->actingAs($user)
-            ->post(route('cases.reserve', $case), ['inventory_lot_id' => $lot->id, 'quantity' => 1])
+            ->post(route('cases.reserve', $case), ['inventory_lot_id' => $lot->id, 'quantity' => 1, 'idempotency_key' => (string) Str::uuid()])
             ->assertRedirect(route('cases.reserve.create', $case))
             ->assertSessionHasErrors('quantity');
     }

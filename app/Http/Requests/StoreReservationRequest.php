@@ -38,6 +38,7 @@ class StoreReservationRequest extends FormRequest
             'inventory_lot_id' => ['required', 'integer', 'exists:inventory_lots,id'],
             'inventory_lot_trace_code' => ['nullable', 'string', 'max:160'],
             'quantity' => ['required', 'integer', 'min:1'],
+            'idempotency_key' => ['required', 'uuid'],
         ];
     }
 

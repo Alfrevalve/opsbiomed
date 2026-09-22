@@ -18,7 +18,9 @@ class CostZeroApprovalController extends Controller
     {
         $this->authorizeApproval();
         $approvals = $service->pending();
-        $approvals->load('documents.uploadedBy', 'documents.validatedBy');
+        $approvals->load([
+            'documents' => fn ($query) => $query->visibleTo(auth()->user())->with(['uploadedBy', 'validatedBy']),
+        ]);
 
         return view('approvals.cost-zero', [
             'approvals' => $approvals,

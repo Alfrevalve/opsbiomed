@@ -37,6 +37,25 @@ class UserManagementTest extends TestCase
         $this->actingAs($user)->get(route('admin.users.index'))->assertForbidden();
     }
 
+    public function test_user_without_manage_permission_cannot_create_managed_users(): void
+    {
+        $this->seed(RoleAndPermissionSeeder::class);
+        $user = User::factory()->create();
+        $user->assignRole(Role::findByName('Comercial'));
+
+        $this->actingAs($user)
+            ->post(route('admin.users.store'), [
+                'name' => 'Usuario no autorizado',
+                'email' => 'unauthorized@example.test',
+                'password' => 'StrongPassword2026!',
+                'password_confirmation' => 'StrongPassword2026!',
+                'role' => 'Comercial',
+            ])
+            ->assertForbidden();
+
+        $this->assertDatabaseMissing('users', ['email' => 'unauthorized@example.test']);
+    }
+
     public function test_admin_can_create_user_with_role_and_profile(): void
     {
         $administrator = $this->administrator();

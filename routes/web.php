@@ -18,6 +18,7 @@ use App\Http\Controllers\ProductPriceController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ReconciliationController;
 use App\Http\Controllers\ReportsController;
+use App\Http\Controllers\ReservationReleaseController;
 use App\Http\Controllers\ReturnController;
 use App\Http\Controllers\ScheduleController;
 use App\Http\Controllers\StockCoverageController;
@@ -199,6 +200,12 @@ Route::middleware(['auth'])->group(function (): void {
         ->name('cases.control');
     Route::post('/cases/{case}/transition', [SurgeryCaseController::class, 'transition'])
         ->name('cases.transition');
+    Route::get('/cases/{case}/cancel', [ReservationReleaseController::class, 'cancelForm'])
+        ->middleware('can:reservations.release')
+        ->name('cases.cancel.form');
+    Route::post('/cases/{case}/cancel', [ReservationReleaseController::class, 'cancel'])
+        ->middleware('can:reservations.release')
+        ->name('cases.cancel');
     Route::patch('/cases/{case}/schedule/instrumentist', [SurgeryCaseController::class, 'assignInstrumentist'])
         ->name('cases.schedule.instrumentist.update');
     Route::post('/cases/{case}/resources', [SurgeryCaseController::class, 'assignResource'])
@@ -237,6 +244,12 @@ Route::middleware(['auth'])->group(function (): void {
         ->name('cases.reserve.create');
     Route::post('/cases/{case}/reserve', [SurgeryCaseController::class, 'reserve'])
         ->name('cases.reserve');
+    Route::get('/reservations/{reservation}/release', [ReservationReleaseController::class, 'releaseForm'])
+        ->middleware('can:reservations.release')
+        ->name('reservations.release.form');
+    Route::post('/reservations/{reservation}/release', [ReservationReleaseController::class, 'release'])
+        ->middleware('can:reservations.release')
+        ->name('reservations.release');
     Route::get('/cases/{case}/close', [SurgeryCaseController::class, 'closeForm'])
         ->name('cases.close.create');
     Route::post('/cases/{case}/close', [SurgeryCaseController::class, 'close'])

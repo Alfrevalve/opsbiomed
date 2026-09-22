@@ -23,24 +23,39 @@ class BillingService
 
     public function refreshOverdueStatuses(): int
     {
-        $records = BillingRecord::query()
+        $recordIds = BillingRecord::query()
             ->whereNotIn('invoice_status', self::NON_DEBT_STATUSES)
             ->whereColumn('amount_paid', '<', 'amount')
             ->whereNotNull('due_date')
             ->whereDate('due_date', '<', today())
             ->where('payment_status', '!=', 'vencido')
-            ->get();
+            ->pluck('id');
+        $updatedCount = 0;
 
-        foreach ($records as $record) {
-            $before = $record->only(['payment_status', 'debt_days']);
-            $record->update([
-                'payment_status' => 'vencido',
-                'debt_days' => today()->diffInDays($record->due_date),
-            ]);
-            $this->auditLogger->record('payment.updated', $record, $before, $record->only(['payment_status', 'debt_days']));
+        foreach ($recordIds as $recordId) {
+            DB::transaction(function () use ($recordId, &$updatedCount): void {
+                $record = BillingRecord::query()->lockForUpdate()->find($recordId);
+
+                if ($record === null
+                    || in_array($record->invoice_status, self::NON_DEBT_STATUSES, true)
+                    || (float) $record->amount_paid >= (float) $record->amount
+                    || $record->due_date === null
+                    || ! $record->due_date->isBefore(today())
+                    || $record->payment_status === 'vencido') {
+                    return;
+                }
+
+                $before = $record->only(['payment_status', 'debt_days']);
+                $record->update([
+                    'payment_status' => 'vencido',
+                    'debt_days' => today()->diffInDays($record->due_date),
+                ]);
+                $this->auditLogger->record('payment.updated', $record, $before, $record->only(['payment_status', 'debt_days']));
+                $updatedCount++;
+            });
         }
 
-        return $records->count();
+        return $updatedCount;
     }
 
     /**
@@ -49,10 +64,14 @@ class BillingService
     public function update(SurgeryCase $case, array $data, int $userId): BillingRecord
     {
         return DB::transaction(function () use ($case, $data, $userId): BillingRecord {
+            $lockedCase = SurgeryCase::query()
+                ->with('valuation')
+                ->lockForUpdate()
+                ->findOrFail($case->id);
             $billing = BillingRecord::query()->lockForUpdate()->firstOrCreate(
-                ['case_id' => $case->id],
+                ['case_id' => $lockedCase->id],
                 [
-                    'amount' => (float) ($case->valuation?->total ?? 0),
+                    'amount' => (float) ($lockedCase->valuation?->total ?? 0),
                     'invoice_status' => 'pendiente_valorizacion',
                     'payment_status' => 'pendiente',
                 ],

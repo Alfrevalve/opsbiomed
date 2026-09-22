@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\BillingRecord;
 use App\Models\Doctor;
 use App\Models\DocumentEvidence;
 use App\Models\Institution;
@@ -69,6 +70,64 @@ class DocumentEvidenceTest extends TestCase
             'link_url' => 'Acta física archivada en almacén, folio 2026-018.',
             'file_path' => null,
         ]);
+    }
+
+    public function test_generic_document_upload_requires_access_to_the_target_record(): void
+    {
+        $case = $this->case($this->userWithPermissions(['documents.upload']));
+        $payload = [
+            'documentable_type' => 'case',
+            'documentable_id' => $case->id,
+            'document_type' => 'solicitud',
+            'title' => 'Solicitud de prueba',
+            'link_url' => 'Referencia del expediente.',
+        ];
+
+        $this->actingAs($this->userWithPermissions(['documents.upload']))
+            ->post(route('documents.store'), $payload)
+            ->assertForbidden();
+
+        $this->assertDatabaseCount('document_evidences', 0);
+
+        $authorizedUser = $this->userWithPermissions(['documents.upload', 'cases.view']);
+
+        $this->actingAs($authorizedUser)
+            ->post(route('documents.store'), $payload)
+            ->assertRedirect();
+
+        $this->assertDatabaseHas('document_evidences', [
+            'documentable_type' => SurgeryCase::class,
+            'documentable_id' => $case->id,
+            'title' => 'Solicitud de prueba',
+        ]);
+    }
+
+    public function test_case_control_only_renders_http_links_as_clickable(): void
+    {
+        $user = $this->userWithPermissions(['cases.view', 'documents.view']);
+        $case = $this->case($user);
+
+        foreach ([
+            ['title' => 'Referencia no confiable', 'link_url' => 'javascript:alert(1)'],
+            ['title' => 'Referencia segura', 'link_url' => 'https://evidence.example.test/record'],
+        ] as $attributes) {
+            DocumentEvidence::create([
+                'documentable_type' => SurgeryCase::class,
+                'documentable_id' => $case->id,
+                'document_type' => 'solicitud',
+                'title' => $attributes['title'],
+                'link_url' => $attributes['link_url'],
+                'uploaded_by' => $user->id,
+                'status' => 'cargado',
+            ]);
+        }
+
+        $this->actingAs($user)
+            ->get(route('cases.control', $case))
+            ->assertOk()
+            ->assertDontSee('href="javascript:alert(1)"', false)
+            ->assertSee('href="https://evidence.example.test/record"', false)
+            ->assertSee('Referencia registrada');
     }
 
     public function test_rejects_unsupported_file_type_and_oversized_file(): void
@@ -214,6 +273,73 @@ class DocumentEvidenceTest extends TestCase
             'action' => 'document.deleted',
             'auditable_id' => $document->id,
         ]);
+    }
+
+    public function test_commercial_cannot_view_financial_documents_through_repository_case_or_billing_pages(): void
+    {
+        Storage::fake('private');
+        $case = $this->case($this->userWithPermissions(['cases.view']));
+        $billing = BillingRecord::create([
+            'case_id' => $case->id,
+            'amount' => 1250,
+            'amount_paid' => 0,
+            'invoice_status' => 'pendiente_factura',
+            'payment_status' => 'pendiente',
+        ]);
+        $path = 'evidence/private-invoice.pdf';
+        Storage::disk('private')->put($path, 'synthetic invoice');
+        $financialDocument = DocumentEvidence::create([
+            'documentable_type' => BillingRecord::class,
+            'documentable_id' => $billing->id,
+            'document_type' => 'factura',
+            'title' => 'Factura confidencial de prueba',
+            'file_path' => $path,
+            'uploaded_by' => User::factory()->create()->id,
+            'status' => 'cargado',
+        ]);
+
+        $commercial = $this->userWithPermissions(['cases.view', 'documents.view', 'commercial.view']);
+
+        $this->actingAs($commercial)
+            ->get(route('documents.index'))
+            ->assertOk()
+            ->assertDontSee('Factura confidencial de prueba');
+        $this->get(route('cases.documents.index', $case))
+            ->assertOk()
+            ->assertDontSee('Factura confidencial de prueba');
+        $this->get(route('billing.index'))
+            ->assertOk()
+            ->assertDontSee('Pagado')
+            ->assertDontSee('Total valorizado');
+        $this->get(route('billing.show', $case))
+            ->assertOk()
+            ->assertDontSee('Factura confidencial de prueba')
+            ->assertDontSee('1,250.00')
+            ->assertSee('Restringido');
+        $this->get(route('documents.show', $financialDocument))->assertForbidden();
+        $this->get(route('documents.download', $financialDocument))->assertForbidden();
+
+        $billingUser = $this->userWithPermissions(['documents.view', 'billing.view']);
+        $this->actingAs($billingUser)
+            ->get(route('documents.show', $financialDocument))
+            ->assertOk()
+            ->assertSee('Factura confidencial de prueba');
+    }
+
+    public function test_user_without_billing_permission_cannot_upload_financial_evidence_to_case(): void
+    {
+        $commercial = $this->userWithPermissions(['cases.view', 'documents.view', 'documents.upload', 'commercial.view']);
+        $case = $this->case($commercial);
+
+        $this->actingAs($commercial)
+            ->post(route('cases.documents.store', $case), [
+                'document_type' => 'factura',
+                'title' => 'Factura no autorizada',
+                'link_url' => 'Referencia de prueba.',
+            ])
+            ->assertForbidden();
+
+        $this->assertDatabaseMissing('document_evidences', ['title' => 'Factura no autorizada']);
     }
 
     /** @param list<string> $permissions */

@@ -83,8 +83,7 @@ class FailureController extends Controller
             'reviewedBy',
             'releasedBy',
             'retiredBy',
-            'documents.uploadedBy',
-            'documents.validatedBy',
+            'documents' => fn ($query) => $query->visibleTo(auth()->user())->with(['uploadedBy', 'validatedBy']),
         ]);
 
         $canAudit = auth()->user()?->can('audit.view') ?? false;

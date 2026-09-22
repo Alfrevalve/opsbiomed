@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Models\DocumentEvidence;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -9,7 +10,26 @@ class StoreDocumentEvidenceRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user()?->can('documents.upload') ?? false;
+        $user = $this->user();
+
+        if (! $user?->can('documents.upload')) {
+            return false;
+        }
+
+        $documentType = (string) $this->input('document_type', '');
+        $documentableType = (string) $this->input('documentable_type', '');
+
+        if (in_array($documentType, DocumentEvidence::BILLING_DOCUMENT_TYPES, true)
+            || $documentableType === 'billing') {
+            return $user->can('billing.view');
+        }
+
+        if (in_array($documentType, DocumentEvidence::APPROVAL_DOCUMENT_TYPES, true)
+            || $documentableType === 'approval') {
+            return $user->can('approvals.approve');
+        }
+
+        return true;
     }
 
     public function rules(): array

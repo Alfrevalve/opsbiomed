@@ -95,8 +95,7 @@ class ReturnController extends Controller
             'inspectedBy',
             'inspectionResponsible',
             'technicalFailure',
-            'documents.uploadedBy',
-            'documents.validatedBy',
+            'documents' => fn ($query) => $query->visibleTo(auth()->user())->with(['uploadedBy', 'validatedBy']),
         ]);
 
         $materialUsed = $return->case?->materialsUsed?->first(

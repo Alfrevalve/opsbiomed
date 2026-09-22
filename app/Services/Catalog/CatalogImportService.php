@@ -148,22 +148,29 @@ class CatalogImportService
 
     public function commit(CatalogImport $import, bool $confirmNegativeInconsistencies = false): CatalogImport
     {
-        $import->load('rows');
+        $import = DB::transaction(function () use ($import, $confirmNegativeInconsistencies): CatalogImport {
+            $import = CatalogImport::query()
+                ->with('rows')
+                ->lockForUpdate()
+                ->findOrFail($import->id);
 
-        if ($import->status === 'committed') {
-            throw new DomainException('La importacion ya fue confirmada.');
-        }
+            if ($import->status === 'committed') {
+                throw new DomainException('La importacion ya fue confirmada.');
+            }
 
-        if ($import->critical_errors > 0) {
-            throw new DomainException('La importacion tiene errores criticos y no puede confirmarse.');
-        }
+            if ($import->critical_errors > 0) {
+                throw new DomainException('La importacion tiene errores criticos y no puede confirmarse.');
+            }
 
-        if ($import->inconsistencies > 0 && ! $confirmNegativeInconsistencies) {
-            throw new DomainException('Debes confirmar que las cantidades negativas se importaran como inconsistencias y no como stock disponible.');
-        }
+            if ($import->inconsistencies > 0 && ! $confirmNegativeInconsistencies) {
+                throw new DomainException('Debes confirmar que las cantidades negativas se importaran como inconsistencias y no como stock disponible.');
+            }
 
-        DB::transaction(function () use ($import): void {
             $warehouses = $this->ensureWarehouses();
+            Warehouse::query()
+                ->whereKey($warehouses['principal']->id)
+                ->lockForUpdate()
+                ->firstOrFail();
             $products = [];
             $aggregatedLots = [];
 
@@ -218,50 +225,76 @@ class CatalogImportService
             foreach ($aggregatedLots as $lotData) {
                 $warehouse = $warehouses[$lotData['warehouse_key']];
                 $status = $this->lotStatus($warehouse, $lotData['expiry'], $lotData['quantity']);
+                $product = Product::query()
+                    ->lockForUpdate()
+                    ->findOrFail($lotData['product']->id);
+                $lotIdentity = [
+                    'product_id' => $product->id,
+                    'lot' => $lotData['lot'],
+                    'serial' => $lotData['serial'],
+                    'warehouse_id' => $warehouse->id,
+                ];
+                $matchingLots = InventoryLot::query()
+                    ->where($lotIdentity)
+                    ->when(
+                        $lotData['expiry'] === null,
+                        fn ($query) => $query->whereNull('expiry'),
+                        fn ($query) => $query->whereDate('expiry', $lotData['expiry']),
+                    )
+                    ->lockForUpdate()
+                    ->get();
 
-                InventoryLot::updateOrCreate(
-                    [
-                        'product_id' => $lotData['product']->id,
-                        'lot' => $lotData['lot'],
-                        'serial' => $lotData['serial'],
-                        'expiry' => $lotData['expiry'],
-                        'warehouse_id' => $warehouse->id,
-                    ],
-                    [
-                        'catalog_import_id' => $import->id,
-                        'location' => $lotData['location'],
-                        'quantity' => $lotData['quantity'],
-                        'status' => $status['status'],
-                        'eligible_flag' => $status['eligible'],
-                        'observations' => 'Importacion '.$import->original_filename,
-                    ],
-                );
+                if ($matchingLots->count() > 1) {
+                    throw new DomainException('Hay lotes duplicados con la misma identificacion. Corrige el inventario antes de confirmar el catalogo.');
+                }
+
+                $existingLot = $matchingLots->first();
+
+                if ($existingLot?->reservations()->where('status', 'active')->exists()) {
+                    throw new DomainException('No se puede actualizar desde el catalogo un lote con reservas activas. Concilia primero la reserva y vuelve a importar.');
+                }
+
+                $lotAttributes = [
+                    'catalog_import_id' => $import->id,
+                    'location' => $lotData['location'],
+                    'quantity' => $lotData['quantity'],
+                    'status' => $status['status'],
+                    'eligible_flag' => $status['eligible'],
+                    'observations' => 'Importacion '.$import->original_filename,
+                ];
+
+                if ($existingLot === null) {
+                    InventoryLot::create($lotIdentity + ['expiry' => $lotData['expiry']] + $lotAttributes);
+                } else {
+                    $existingLot->update($lotAttributes);
+                }
             }
 
             $import->update([
                 'status' => 'committed',
                 'committed_at' => now(),
             ]);
-        });
 
-        $import->refresh();
-        $this->auditLogger->record(
-            $import->inconsistencies > 0
-                ? 'catalog.import.committed_with_issues'
-                : 'catalog.import.committed',
-            $import,
-            [],
-            [
-                'filename' => $import->original_filename,
-                'products' => $import->products_detected,
-                'lots' => $import->lots_detected,
-                'stock_by_warehouse' => $import->stock_by_warehouse,
-                'inconsistencies' => $import->inconsistencies,
-                'confirmed_negative_inconsistencies' => $confirmNegativeInconsistencies,
-            ],
-        );
+            $this->auditLogger->record(
+                $import->inconsistencies > 0
+                    ? 'catalog.import.committed_with_issues'
+                    : 'catalog.import.committed',
+                $import,
+                [],
+                [
+                    'filename' => $import->original_filename,
+                    'products' => $import->products_detected,
+                    'lots' => $import->lots_detected,
+                    'stock_by_warehouse' => $import->stock_by_warehouse,
+                    'inconsistencies' => $import->inconsistencies,
+                    'confirmed_negative_inconsistencies' => $confirmNegativeInconsistencies,
+                ],
+            );
 
-        return $import;
+            return $import;
+        }, 3);
+
+        return $import->refresh();
     }
 
     /**

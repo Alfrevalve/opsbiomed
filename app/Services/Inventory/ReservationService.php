@@ -79,13 +79,32 @@ class ReservationService
         });
     }
 
-    public function reserveLot(SurgeryCase $case, int $lotId, int $quantity): Reservation
+    public function reserveLot(SurgeryCase $case, int $lotId, int $quantity, string $idempotencyKey): Reservation
     {
         if ($quantity <= 0) {
             throw new RuntimeException('La cantidad a reservar debe ser mayor que cero.');
         }
 
-        return DB::transaction(function () use ($case, $lotId, $quantity): Reservation {
+        return DB::transaction(function () use ($case, $lotId, $quantity, $idempotencyKey): Reservation {
+            $lockedCase = SurgeryCase::query()
+                ->lockForUpdate()
+                ->findOrFail($case->id);
+            $existingReservation = Reservation::query()
+                ->where('idempotency_key', $idempotencyKey)
+                ->lockForUpdate()
+                ->first();
+
+            if ($existingReservation !== null) {
+                if ((int) $existingReservation->case_id !== (int) $lockedCase->id
+                    || (int) $existingReservation->inventory_lot_id !== $lotId
+                    || (int) $existingReservation->quantity !== $quantity
+                    || $existingReservation->status !== 'active') {
+                    throw new RuntimeException('Este envio ya fue procesado con datos distintos o la reserva ya no esta activa.');
+                }
+
+                return $existingReservation;
+            }
+
             $lot = InventoryLot::query()
                 ->with(['product', 'warehouse'])
                 ->lockForUpdate()
@@ -107,7 +126,8 @@ class ReservationService
                 'quantity' => $quantity,
                 'status' => 'active',
                 'reserved_by' => auth()->id(),
-                'expires_at' => $case->scheduled_at?->copy()->addDay(),
+                'expires_at' => $lockedCase->scheduled_at?->copy()->addDay(),
+                'idempotency_key' => $idempotencyKey,
             ]);
 
             $this->auditLogger->record('reservation.created', $reservation, [], [
@@ -121,8 +141,8 @@ class ReservationService
                 'quantity' => $quantity,
             ]);
 
-            if (! in_array($case->status, [CaseStatus::Reservado, CaseStatus::Reservada], true)) {
-                $case->update(['status' => CaseStatus::Reservado]);
+            if (! in_array($lockedCase->status, [CaseStatus::Reservado, CaseStatus::Reservada], true)) {
+                $lockedCase->update(['status' => CaseStatus::Reservado]);
             }
 
             return $reservation;

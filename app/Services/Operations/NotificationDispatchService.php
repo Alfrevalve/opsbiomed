@@ -69,7 +69,7 @@ class NotificationDispatchService
                 'alert_id' => $alert->id,
                 'recipient_id' => $recipient->id,
                 'channel' => 'database',
-                'error' => $exception->getMessage(),
+                'exception_class' => $exception::class,
             ]);
 
             return null;

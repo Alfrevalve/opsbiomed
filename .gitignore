@@ -32,6 +32,7 @@
 /coverage/
 /.phpunit.result.cache
 /.phpunit.cache
+/phpunit.mysql.xml
 
 *.log
 .DS_Store

@@ -206,8 +206,7 @@ class SurgeryCaseController extends Controller
             'failures.inventoryLot.product',
             'failures.reportedBy',
             'failures.responsibleTechnical',
-            'documents.uploadedBy',
-            'documents.validatedBy',
+            'documents' => fn ($query) => $query->visibleTo(auth()->user())->with(['uploadedBy', 'validatedBy']),
         ]);
         $reservationOverview = $stockRiskService->caseOverview($case);
         $canViewBilling = auth()->user()?->can('billing.view') ?? false;
@@ -266,8 +265,7 @@ class SurgeryCaseController extends Controller
             'failures.inventoryLot.warehouse',
             'failures.reportedBy',
             'failures.responsibleTechnical',
-            'documents.uploadedBy',
-            'documents.validatedBy',
+            'documents' => fn ($query) => $query->visibleTo(auth()->user())->with(['uploadedBy', 'validatedBy']),
             'valuation.lines.product',
             'valuation.approval.requestedBy',
             'valuation.approval.approvedBy',
@@ -600,6 +598,7 @@ class SurgeryCaseController extends Controller
                 $case,
                 (int) $request->validated('inventory_lot_id'),
                 (int) $request->validated('quantity'),
+                (string) $request->validated('idempotency_key'),
             );
 
             if (filled($request->validated('inventory_lot_trace_code'))) {
@@ -635,8 +634,7 @@ class SurgeryCaseController extends Controller
                 ->where('status', 'active')
                 ->with(['inventoryLot.product', 'inventoryLot.warehouse'])
                 ->orderBy('id'),
-            'documents.uploadedBy',
-            'documents.validatedBy',
+            'documents' => fn ($query) => $query->visibleTo($request->user())->with(['uploadedBy', 'validatedBy']),
         ]);
 
         if ($case->reservations->isEmpty()) {
@@ -813,7 +811,7 @@ class SurgeryCaseController extends Controller
      * @return list<array{label: string, state: string}>
      */
     /**
-     * @return Collection<int, array{product: mixed, lot: ?InventoryLot, reserved_qty: int, used_qty: int, returned_qty: int, failure_qty: int, difference_qty: ?int, unit_price: mixed, subtotal: mixed, has_consumption: bool}>
+     * @return Collection<int, array{product: mixed, lot: ?InventoryLot, reservation: ?Reservation, reserved_qty: int, used_qty: int, returned_qty: int, failure_qty: int, difference_qty: ?int, unit_price: mixed, subtotal: mixed, has_consumption: bool}>
      */
     private function controlMaterialRows(SurgeryCase $case): Collection
     {
@@ -839,7 +837,7 @@ class SurgeryCaseController extends Controller
     }
 
     /**
-     * @return array{product: mixed, lot: ?InventoryLot, reserved_qty: int, used_qty: int, returned_qty: int, failure_qty: int, difference_qty: ?int, unit_price: mixed, subtotal: mixed, has_consumption: bool}
+     * @return array{product: mixed, lot: ?InventoryLot, reservation: ?Reservation, reserved_qty: int, used_qty: int, returned_qty: int, failure_qty: int, difference_qty: ?int, unit_price: mixed, subtotal: mixed, has_consumption: bool}
      */
     private function controlMaterialRow(
         ?InventoryLot $lot,
@@ -849,6 +847,7 @@ class SurgeryCaseController extends Controller
         return [
             'product' => $lot?->product,
             'lot' => $lot,
+            'reservation' => $reservation,
             'reserved_qty' => (int) ($material?->reserved_qty ?? $reservation?->quantity ?? 0),
             'used_qty' => (int) ($material?->used_qty ?? 0),
             'returned_qty' => (int) ($material?->returned_qty ?? 0),

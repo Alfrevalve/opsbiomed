@@ -40,7 +40,11 @@ class ReconciliationBillingTest extends TestCase
         $this->actingAs($user)
             ->post(route('cases.reconciliation.store', $case), ['observations' => 'Conciliacion sin diferencias.'])
             ->assertRedirect(route('cases.show', $case));
+        $this->actingAs($user)
+            ->post(route('cases.reconciliation.store', $case), ['observations' => 'Conciliacion sin diferencias.'])
+            ->assertRedirect(route('cases.show', $case));
 
+        $this->assertDatabaseCount('case_reconciliations', 1);
         $this->assertDatabaseHas('case_reconciliations', [
             'case_id' => $case->id,
             'status' => 'conciliado',
@@ -141,6 +145,30 @@ class ReconciliationBillingTest extends TestCase
             ])
             ->assertRedirect()
             ->assertSessionHasErrors('invoice_number');
+    }
+
+    public function test_replaying_a_billing_update_keeps_one_record_for_the_case(): void
+    {
+        $user = $this->userWithRole('Cobranza', ['dashboard.view', 'cases.view', 'billing.view', 'billing.update']);
+        [$case] = $this->closedCase($user);
+        $payload = [
+            'invoice_status' => 'pendiente_oc',
+            'purchase_order' => 'OC-REPLAY-001',
+            'payment_status' => 'pendiente',
+            'amount_paid' => 0,
+        ];
+
+        $this->actingAs($user)->patch(route('billing.update', $case), $payload)
+            ->assertRedirect(route('billing.show', $case));
+        $this->actingAs($user)->patch(route('billing.update', $case), $payload)
+            ->assertRedirect(route('billing.show', $case));
+
+        $this->assertDatabaseCount('billing_records', 1);
+        $this->assertDatabaseHas('billing_records', [
+            'case_id' => $case->id,
+            'invoice_status' => 'pendiente_oc',
+            'purchase_order' => 'OC-REPLAY-001',
+        ]);
     }
 
     public function test_payment_cannot_be_marked_paid_with_an_open_balance(): void

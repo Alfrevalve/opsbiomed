@@ -204,12 +204,23 @@ class SurgeryScheduleService
 
             if ($instrumentistId !== null) {
                 $instrumentist = User::query()
-                    ->role('Instrumentista')
-                    ->where('active', true)
+                    ->lockForUpdate()
                     ->find($instrumentistId);
 
-                if ($instrumentist === null) {
+                if ($instrumentist === null || ! $instrumentist->active || ! $instrumentist->hasRole('Instrumentista')) {
                     throw new DomainException('El usuario seleccionado no es un instrumentista activo.');
+                }
+
+                $scheduledMinute = $case->scheduled_at->copy()->startOfMinute();
+                $hasConflict = SurgeryCase::query()
+                    ->whereKeyNot($case->id)
+                    ->where('assigned_instrumentist_id', $instrumentist->id)
+                    ->whereNotIn('status', array_map(fn (CaseStatus $status): string => $status->value, self::CLOSED_CASE_STATUSES))
+                    ->whereBetween('scheduled_at', [$scheduledMinute, $scheduledMinute->copy()->endOfMinute()])
+                    ->exists();
+
+                if ($hasConflict) {
+                    throw new DomainException('El instrumentista ya esta asignado a otra cirugia en ese horario.');
                 }
             }
 
@@ -266,6 +277,19 @@ class SurgeryScheduleService
 
                 if (! $this->canAssignResourceLot($lot)) {
                     throw new DomainException('El recurso seleccionado no esta disponible para asignacion inmediata.');
+                }
+
+                $scheduledMinute = $case->scheduled_at->copy()->startOfMinute();
+                $hasConflict = CaseResourceAssignment::query()
+                    ->where('inventory_lot_id', $lot->id)
+                    ->whereHas('surgeryCase', fn (Builder $query): Builder => $query
+                        ->whereKeyNot($case->id)
+                        ->whereNotIn('status', array_map(fn (CaseStatus $status): string => $status->value, self::CLOSED_CASE_STATUSES))
+                        ->whereBetween('scheduled_at', [$scheduledMinute, $scheduledMinute->copy()->endOfMinute()]))
+                    ->exists();
+
+                if ($hasConflict) {
+                    throw new DomainException('El recurso ya esta asignado a otra cirugia en ese horario.');
                 }
 
                 $alreadyAssigned = CaseResourceAssignment::query()

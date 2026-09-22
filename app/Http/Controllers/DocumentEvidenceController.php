@@ -13,6 +13,7 @@ use App\Models\Failure;
 use App\Models\InventoryLot;
 use App\Models\OperationalAlert;
 use App\Models\SurgeryCase;
+use App\Models\User;
 use App\Services\Documents\DocumentEvidenceService;
 use DomainException;
 use Illuminate\Database\Eloquent\Builder;
@@ -56,19 +57,34 @@ class DocumentEvidenceController extends Controller
         'approval' => Approval::class,
     ];
 
+    /** @var array<class-string<Model>, string> */
+    private const DOCUMENTABLE_PERMISSIONS = [
+        SurgeryCase::class => 'cases.view',
+        InventoryLot::class => 'inventory.view',
+        Failure::class => 'failures.view',
+        CaseReturn::class => 'returns.view',
+        BillingRecord::class => 'billing.view',
+        Approval::class => 'approvals.approve',
+    ];
+
     public function index(Request $request): View
     {
         $this->authorize('viewAny', DocumentEvidence::class);
 
+        $user = $request->user();
+        $documentTypes = $this->allowedDocumentTypes($user);
+        $targetTypes = $this->allowedDocumentableTypes($user);
+
         $status = $request->string('status')->toString();
         $documentType = $request->string('document_type')->toString();
         $targetType = $request->string('documentable_type')->toString();
-        $targetClass = self::DOCUMENTABLE_TYPES[$targetType] ?? null;
+        $targetClass = $targetTypes[$targetType] ?? null;
 
         $documents = DocumentEvidence::query()
+            ->visibleTo($user)
             ->with(['uploadedBy', 'validatedBy', 'documentable'])
             ->when(in_array($status, ['pendiente', 'cargado', 'validado', 'observado', 'rechazado'], true), fn (Builder $query) => $query->where('status', $status))
-            ->when(array_key_exists($documentType, self::DOCUMENT_TYPES), fn (Builder $query) => $query->where('document_type', $documentType))
+            ->when(array_key_exists($documentType, $documentTypes), fn (Builder $query) => $query->where('document_type', $documentType))
             ->when($targetClass !== null, fn (Builder $query) => $query->where('documentable_type', $targetClass))
             ->latest('id')
             ->paginate(25)
@@ -76,9 +92,9 @@ class DocumentEvidenceController extends Controller
 
         return view('documents.index', [
             'documents' => $documents,
-            'documentTypes' => self::DOCUMENT_TYPES,
-            'targetTypes' => self::DOCUMENTABLE_TYPES,
-            'targetOptions' => $this->targetOptions(),
+            'documentTypes' => $documentTypes,
+            'targetTypes' => $targetTypes,
+            'targetOptions' => $this->targetOptions($user, $targetTypes),
             'filters' => $request->only(['status', 'document_type', 'documentable_type']),
         ]);
     }
@@ -130,12 +146,15 @@ class DocumentEvidenceController extends Controller
     {
         $this->authorize('view', $case);
         $this->authorize('viewAny', DocumentEvidence::class);
-        $case->load(['institution', 'doctor', 'patient', 'surgeryType', 'documents.uploadedBy', 'documents.validatedBy']);
+        $case->load([
+            'institution', 'doctor', 'patient', 'surgeryType',
+            'documents' => fn ($query) => $query->visibleTo(request()->user())->with(['uploadedBy', 'validatedBy']),
+        ]);
 
         return view('documents.case', [
             'case' => $case,
             'documents' => $case->documents,
-            'documentTypes' => self::DOCUMENT_TYPES,
+            'documentTypes' => $this->allowedDocumentTypes(request()->user()),
         ]);
     }
 
@@ -146,6 +165,9 @@ class DocumentEvidenceController extends Controller
 
         try {
             $documentable = $this->resolveDocumentable($data);
+            $permission = self::DOCUMENTABLE_PERMISSIONS[$documentable::class] ?? null;
+            abort_unless($permission !== null && $request->user()?->can($permission), 403);
+
             $document = $service->upload($data, $documentable, $request->user());
         } catch (DomainException $exception) {
             return back()->withInput()->withErrors(['document' => $exception->getMessage()]);
@@ -190,17 +212,48 @@ class DocumentEvidenceController extends Controller
         return redirect()->route('documents.index')->with('status', 'Documento enviado a papelera logica; el archivo privado fue conservado.');
     }
 
-    /** @return array<string, Collection<int, Model>> */
-    private function targetOptions(): array
+    /** @return array<string, string> */
+    private function allowedDocumentTypes(User $user): array
     {
-        return [
-            'case' => SurgeryCase::query()->with(['institution', 'doctor'])->latest('id')->limit(100)->get(),
-            'inventory_lot' => InventoryLot::query()->with(['product', 'warehouse'])->latest('id')->limit(100)->get(),
-            'failure' => Failure::query()->with(['product', 'inventoryLot.product'])->latest('id')->limit(100)->get(),
-            'return' => CaseReturn::query()->with(['case', 'inventoryLot.product'])->latest('id')->limit(100)->get(),
-            'billing' => BillingRecord::query()->with('case')->latest('id')->limit(100)->get(),
-            'approval' => Approval::query()->with('case')->latest('id')->limit(100)->get(),
-        ];
+        return array_filter(self::DOCUMENT_TYPES, function (string $type) use ($user): bool {
+            if (in_array($type, DocumentEvidence::BILLING_DOCUMENT_TYPES, true) && ! $user->can('billing.view')) {
+                return false;
+            }
+
+            return ! in_array($type, DocumentEvidence::APPROVAL_DOCUMENT_TYPES, true) || $user->can('approvals.approve');
+        });
+    }
+
+    /** @return array<string, class-string<Model>> */
+    private function allowedDocumentableTypes(User $user): array
+    {
+        return array_filter(self::DOCUMENTABLE_TYPES, function (string $modelClass) use ($user): bool {
+            $permission = self::DOCUMENTABLE_PERMISSIONS[$modelClass] ?? null;
+
+            return $permission !== null && $user->can($permission);
+        });
+    }
+
+    /** @param array<string, class-string<Model>> $targetTypes
+     * @return array<string, Collection<int, Model>>
+     */
+    private function targetOptions(User $user, array $targetTypes): array
+    {
+        $options = [];
+
+        foreach ($targetTypes as $key => $modelClass) {
+            $options[$key] = match ($modelClass) {
+                SurgeryCase::class => SurgeryCase::query()->with(['institution', 'doctor'])->latest('id')->limit(100)->get(),
+                InventoryLot::class => InventoryLot::query()->with(['product', 'warehouse'])->latest('id')->limit(100)->get(),
+                Failure::class => Failure::query()->with(['product', 'inventoryLot.product'])->latest('id')->limit(100)->get(),
+                CaseReturn::class => CaseReturn::query()->with(['case', 'inventoryLot.product'])->latest('id')->limit(100)->get(),
+                BillingRecord::class => BillingRecord::query()->with('case')->latest('id')->limit(100)->get(),
+                Approval::class => Approval::query()->with('case')->latest('id')->limit(100)->get(),
+                default => collect(),
+            };
+        }
+
+        return $options;
     }
 
     /** @param array<string, mixed> $data */

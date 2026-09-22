@@ -107,6 +107,11 @@
                 @can('trace.print')
                     <a href="{{ route('trace.labels.cases', $case) }}" class="ops-button-secondary inline-flex items-center justify-center px-3 py-2 text-sm font-semibold">Etiquetas del caso</a>
                 @endcan
+                @can('reservations.release')
+                    @if ($case->status !== \App\Enums\CaseStatus::Cancelado)
+                        <a href="{{ route('cases.cancel.form', $case) }}" class="ops-button-danger inline-flex items-center justify-center px-3 py-2 text-sm font-semibold">Cancelar caso y revisar reservas</a>
+                    @endif
+                @endcan
                 @if ($canPrepare && $preparationSummary['required'])
                     <a href="{{ route('cases.preparation', $case) }}" class="ops-button-secondary inline-flex items-center justify-center px-3 py-2 text-sm font-semibold">Preparar y despachar</a>
                 @endif
@@ -518,6 +523,11 @@
                                         @if ($canViewInventory && $row['lot'])
                                             <a href="{{ route('inventory.show', $row['lot']) }}" class="mt-1 inline-flex text-xs font-semibold text-sky-700 hover:text-sky-900">Ver lote</a>
                                         @endif
+                                        @can('reservations.release')
+                                            @if ($row['reservation']?->status === 'active')
+                                                <a href="{{ route('reservations.release.form', $row['reservation']) }}" class="mt-1 inline-flex text-xs font-semibold text-rose-700 hover:text-rose-900">Revisar liberacion</a>
+                                            @endif
+                                        @endcan
                                     </td>
                                     <td class="px-5 py-4 font-mono text-xs text-slate-700">{{ $row['product']?->product_code ?: 'Sin codigo' }}</td>
                                     <td class="px-5 py-4 text-slate-700">{{ $row['lot']?->lot ?: 'Sin lote' }}{{ $row['lot']?->serial ? ' / '.$row['lot']->serial : '' }}</td>
@@ -586,8 +596,10 @@
                                                         <a href="{{ route('documents.show', $document) }}" class="text-sm font-semibold text-sky-700 hover:text-sky-900">Ver</a>
                                                         @if ($document->file_path)
                                                             <a href="{{ route('documents.download', $document) }}" class="text-sm font-semibold text-sky-700 hover:text-sky-900">Descargar</a>
-                                                        @elseif ($document->link_url)
+                                                        @elseif ($document->link_url && \Illuminate\Support\Str::startsWith($document->link_url, ['http://', 'https://']))
                                                             <a href="{{ $document->link_url }}" target="_blank" rel="noopener noreferrer" class="text-sm font-semibold text-sky-700 hover:text-sky-900">Abrir</a>
+                                                        @elseif ($document->link_url)
+                                                            <span class="text-sm text-slate-500">Referencia registrada</span>
                                                         @endif
                                                     </div>
                                                 </td>

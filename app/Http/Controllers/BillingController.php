@@ -47,7 +47,15 @@ class BillingController extends Controller
     {
         $this->authorizeView();
         $billingService->refreshOverdueStatuses();
-        $case->load(['institution', 'doctor', 'surgeryType', 'billingRecord.documents.uploadedBy', 'billingRecord.documents.validatedBy', 'documents.uploadedBy', 'documents.validatedBy', 'valuation.lines.product', 'reconciliation']);
+        $case->load([
+            'institution',
+            'doctor',
+            'surgeryType',
+            'billingRecord.documents' => fn ($query) => $query->visibleTo(auth()->user())->with(['uploadedBy', 'validatedBy']),
+            'documents' => fn ($query) => $query->visibleTo(auth()->user())->with(['uploadedBy', 'validatedBy']),
+            'valuation.lines.product',
+            'reconciliation',
+        ]);
         $billing = $case->billingRecord ?? new BillingRecord([
             'case_id' => $case->id,
             'amount' => $case->valuation?->total ?? 0,

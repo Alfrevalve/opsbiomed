@@ -58,6 +58,7 @@
             </div>
             <form method="POST" action="{{ route('cases.reserve', $case) }}" class="grid gap-4 p-5 sm:grid-cols-[minmax(0,1fr)_10rem_auto] sm:items-end">
                 @csrf
+                <input type="hidden" name="idempotency_key" value="{{ (string) \Illuminate\Support\Str::uuid() }}">
                 <label class="text-sm font-medium text-slate-700" for="inventory_lot_trace_code">
                     Codigo trazable del lote
                     <input id="inventory_lot_trace_code" name="inventory_lot_trace_code" type="text" maxlength="160" value="{{ old('inventory_lot_trace_code') }}" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="LOT-123-MR8-9BA30" class="mt-2 block w-full border-slate-300 font-mono text-sm uppercase shadow-sm focus:border-sky-500 focus:ring-sky-500">
@@ -113,6 +114,7 @@
                                     <td class="px-5 py-4">
                                         <form method="POST" action="{{ route('cases.reserve', $case) }}" class="flex min-w-44 items-center gap-2">
                                             @csrf
+                                            <input type="hidden" name="idempotency_key" value="{{ (string) \Illuminate\Support\Str::uuid() }}">
                                             <input type="hidden" name="inventory_lot_id" value="{{ $lot->id }}">
                                             <label class="sr-only" for="quantity-{{ $lot->id }}">Cantidad para {{ $lot->product?->product_code }}</label>
                                             <input id="quantity-{{ $lot->id }}" name="quantity" type="number" min="1" max="{{ $lot->available_net }}" value="{{ old('inventory_lot_id') == $lot->id ? old('quantity') : 1 }}" required class="w-20 border-slate-300 text-sm shadow-sm focus:border-sky-500 focus:ring-sky-500">

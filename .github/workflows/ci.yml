@@ -51,12 +51,17 @@ jobs:
           mkdir -p storage/framework/sessions storage/framework/views storage/framework/cache/data storage/logs storage/app/private storage/app/public bootstrap/cache
           chmod -R ug+rwX storage bootstrap/cache
           php -r "file_exists('.env') || copy('.env.example', '.env');"
+          printf '%s\n' "VIEW_COMPILED_PATH=${GITHUB_WORKSPACE}/storage/framework/views" >> .env
+          test -d "${GITHUB_WORKSPACE}/storage/framework/views"
 
       - name: Validate Composer manifest
         run: composer validate --strict
 
       - name: Install PHP dependencies
-        run: composer install --no-interaction --prefer-dist --optimize-autoloader
+        run: composer install --no-interaction --prefer-dist --optimize-autoloader --no-scripts
+
+      - name: Discover Laravel packages
+        run: php artisan package:discover --ansi
 
       - name: Audit PHP dependencies
         run: composer audit --locked

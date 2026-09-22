@@ -18,7 +18,7 @@ Las unicas bases modificadas destructivamente por las pruebas fueron las autoriz
 - `composer install --no-interaction --prefer-dist --optimize-autoloader`: 125 paquetes; `artisan package:discover` correcto.
 - `npm ci --no-audit --no-fund`: 94 paquetes; build correcto.
 - `.env` aislado: `APP_ENV=staging`, `APP_DEBUG=false`, cache/sesion en archivos, correo `log`, DB local. El archivo no se incluyo en backups.
-- La copia limpia corresponde al commit `10a43743` y solo contiene 36 migraciones. El arbol de trabajo posterior tiene dos migraciones adicionales de Fase 3 y cambios aun sin commit. No son el mismo artefacto desplegable.
+- La copia limpia histórica corresponde al commit `10a43743` y solo contiene 36 migraciones. Como cierre de esta brecha, el release candidate `3499aac7` fue empaquetado de forma limpia con 38 migraciones; `composer install`, `npm ci`, Vite, `migrate:status`, la suite (277/1,785), `view:cache` y 148 rutas pasaron. La recuperación limpia cronometrada y el hosting remoto siguen pendientes.
 
 ## Validaciones finales
 

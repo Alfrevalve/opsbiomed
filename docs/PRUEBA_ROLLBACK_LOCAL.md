@@ -15,5 +15,5 @@ Se simulo health check fallido contra puerto local cerrado, se selecciono RELEAS
 ## Limitaciones
 
 - En Windows se uso un archivo selector y puertos `artisan serve`; no se probo symlink atomico, Apache/Laragon, reinicio de servicios, permisos Linux, opcache ni comportamiento de un vhost.
-- Las dos releases representan HEAD versionado. Fase 3 tiene dos migraciones/cambios no versionados; no promover hasta hacer commit coherente y repetir el ensayo con ese artefacto.
+- Las releases A/B documentan el ensayo histórico sobre `10a43743`. El release candidate actual `3499aac7` ya consolida las 38 migraciones y pasó instalación limpia, Composer package discovery, `npm ci`, Vite y la suite de 277/1,785 tests. El rollback de hosting real continúa pendiente.
 - La prueba confirma el procedimiento simulado local, no rollback del servidor remoto ni RTO de hosting.

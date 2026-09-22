@@ -1,6 +1,6 @@
 # Matriz de riesgos tecnicos y de seguridad
 
-Estado actualizado: 2026-09-20. Es evidencia de QA local, no certificacion ni permiso para usar produccion.
+Estado actualizado: 2026-09-21. Es evidencia de QA local, no certificacion ni permiso para usar produccion.
 
 | Codigo | Severidad / estado | Evidencia y riesgo | Mitigacion / pendiente |
 |---|---|---|---|
@@ -28,7 +28,7 @@ Estado actualizado: 2026-09-20. Es evidencia de QA local, no certificacion ni pe
 | Codigo | Severidad / estado | Evidencia y riesgo | Mitigacion / pendiente |
 |---|---|---|---|
 | PRIV-002 | P1 / corregido en arbol actual | Comercial podia consultar/listar evidencias financieras de factura/OC asociadas al caso y forzar rutas de documento por ID. | Visibilidad filtrada por tipo y entidad, policy sobre ver/validar/borrar/descargar, autorizacion de carga; pruebas `DocumentEvidenceTest` 12/58. Revalidar al versionar/desplegar. |
-| REL-001 | P1 / abierto | HEAD `10a43743` contiene 36 migraciones; el arbol de trabajo actual requiere 38 por dos migraciones Fase 3 no versionadas. | Commit atomico del codigo/migraciones, instalacion limpia desde ese commit y repetir tests. No promover mientras difieran. |
+| REL-001 | P1 / cerrado local | Commit `3499aac7` consolida codigo y migraciones Fase 3; snapshot limpio aplica 38 migraciones, instala Composer, ejecuta `npm ci`, compila y pasa 277/1,785 tests. | Mantener el commit como artefacto candidato; no promover sin staging remoto. |
 | REC-002 | P1 / abierto | Restauracion de DB/storage verificada, pero el manifiesto no contiene un tiempo de importacion limpio tras un primer fallo del verificador PowerShell. | Repetir restore en base aprobada vacia, guardar `restore_duration_seconds` y medir recuperacion total/RPO. |
 | PILOT-001 | P1 / abierto | Ocho cuentas pasaron smoke GET y permisos; no se ejecuto el flujo mutante completo del caso. | Piloto seco E2E con datos sinteticos y evidencia de estados/stock/auditoria antes de habilitar operacion. |
 | SCH-002 | P2 / pendiente local | `schedule:run` fue invocado cuando no habia evento vencido; evaluator manual idempotente pasa, sin scheduler continuo configurado. | Observar ejecucion programada durante ventana de prueba y aprobar mecanismo local/hosting sin exponer servicios externos. |

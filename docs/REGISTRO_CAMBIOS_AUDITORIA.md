@@ -38,3 +38,10 @@ No hubo acceso, migraciones, pruebas ni operaciones sobre produccion. La referen
 ## Aclaracion de base de pruebas
 
 La anotacion historica de Fase 3 que refiere a `ops_biomed_test` pertenece a esa fase previa. Para Fase 4, los unicos destinos modificados destructivamente fueron `ops_biomed_staging_local` y `ops_biomed_restore_test`, respetando la autorizacion expresa vigente.
+
+## 2026-09-21 - Release candidate local
+
+- Se consolido el estado validado en el commit `3499aac7` (`chore: consolidate pilot hardening and reservation controls`).
+- El snapshot limpio contiene 38 migraciones; Composer `package:discover`, `npm ci` y Vite terminaron correctamente.
+- La suite del snapshot limpio paso 277 tests / 1,785 assertions en 68.29 s; `view:cache`, `migrate:status` y 148 rutas tambien pasaron.
+- `REL-001` queda cerrado localmente. Sigue abierta la medicion de restauracion limpia con cronometro (`REC-002`) y el piloto seco mutante (`PILOT-001`); la decision permanece **NO-GO LOCAL**.
